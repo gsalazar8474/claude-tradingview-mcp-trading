@@ -242,11 +242,16 @@ This prints total trades, volume, and fees paid.
 
 ## Safety
 
-- The safety check blocks any trade that doesn't meet every condition
-- Position sizing uses your risk rules — default max 1-2% of portfolio per trade
-- Stop loss is placed automatically at the level defined in your rules
-- Every decision is logged with the exact values that triggered it
-- Every executed trade is recorded in `trades.csv` for accounting
+The safety check conditions are not fixed — they come directly from your `rules.json`. If you build a strategy from a YouTube trader's transcripts using the Apify prompt, your safety check will reflect that trader's entry logic. If you use the example strategy, it reflects those conditions. They're yours, not a generic filter.
+
+Every condition in your `entry_rules` must pass before a trade goes through. One fails — nothing happens. The bot tells you exactly which condition failed and the actual value it saw.
+
+Additional guardrails that apply regardless of strategy:
+- Maximum trade size capped at `MAX_TRADE_SIZE_USD` in `.env`
+- Maximum trades per day capped at `MAX_TRADES_PER_DAY` in `.env`
+- Position sizing calculated from your portfolio value — max 1% risk per trade
+- Every decision logged to `safety-check-log.json` with exact indicator values
+- Every executed trade recorded in `trades.csv` for accounting
 
 **This is not financial advice.** Build your strategy properly. Run the backtest. Paper trade before going live. Never put in more than you can afford to lose.
 

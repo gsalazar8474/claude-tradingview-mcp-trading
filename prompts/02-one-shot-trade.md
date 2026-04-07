@@ -283,6 +283,29 @@ Show them the path: `./trades.csv` will appear in the project directory.
 
 ---
 
+## STEP 7 — Explain the safety check conditions
+
+Before running the bot, read their `rules.json` and tell them exactly what their
+safety check will be checking — in plain English.
+
+Say something like:
+
+"Before we run this, here's what your bot will check before every single trade.
+These conditions come directly from your strategy in rules.json — not from me,
+not from a template. If you built a different strategy, these conditions would
+be completely different.
+
+Your bot will only trade when ALL of the following are true:
+[list each condition from their entry_rules, translated into plain English]
+
+If any single one of those fails, no trade happens. It tells you which one
+failed and the actual value it saw."
+
+This is an important moment. Make sure the user understands their safety check
+is specific to their strategy — not a generic filter.
+
+---
+
 ## STEP 8 — Watch it run
 
 Run the bot once right now so they can see it working:
@@ -293,8 +316,11 @@ node bot.js
 
 Walk them through the output:
 - The indicator values it pulled
-- Each condition in the safety check (PASS or FAIL)
-- The decision (execute or block, and why)
+- Each condition from their strategy (PASS or FAIL)
+- The decision (execute or block, and exactly why)
+
+Remind them: "Every condition you just saw checked — those came from your
+rules.json. This is your strategy running, not a generic bot."
 
 Tell them: "This is exactly what will run on your schedule in the cloud.
 Every decision is logged to safety-check-log.json — that's your full audit trail.
