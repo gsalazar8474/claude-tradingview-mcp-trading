@@ -1,6 +1,5 @@
 import "dotenv/config";
 import { readFileSync, writeFileSync, existsSync, appendFileSync } from "fs";
-import { execSync } from "child_process";
 import express from "express";
 
 // ─── EXPRESS WEBHOOK SERVER ───────────────────────────────────────────────────
