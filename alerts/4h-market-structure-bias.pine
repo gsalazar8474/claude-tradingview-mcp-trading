@@ -49,6 +49,11 @@ plotshape(not na(pivotLow), style=shape.triangleup, location=location.belowbar, 
 if barstate.islast
     label.new(bar_index, high * 1.001, biasText, color=biasColor, textcolor=color.white, style=label.style_label_down, size=size.normal)
 
+// Plot bias value so the indicator shows a readable number instead of 0.000
+// 1 = BULLISH, -1 = BEARISH, 0 = UNCLEAR
+biasValue = bullish ? 1 : bearish ? -1 : 0
+plot(biasValue, "Bias (1=Bull -1=Bear 0=Unclear)", color=biasColor, linewidth=2, display=display.status_line)
+
 bullishTurn = bullish and not bullish[1]
 bearishTurn = bearish and not bearish[1]
 unclearTurn = unclear and not unclear[1]
