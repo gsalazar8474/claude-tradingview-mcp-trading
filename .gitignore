@@ -2,3 +2,5 @@
 *.log
 safety-check-log.json
 node_modules/
+node_modules/
+.env
