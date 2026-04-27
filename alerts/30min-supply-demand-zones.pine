@@ -106,49 +106,51 @@ currPL  = ta.pivotlow(low, entryPLen, entryPLen)
 currAtr = ta.atr(atrLen)
 
 // Supply zones: mitigation check then entry guide (2nd lower high = sell entry)
-for i = 0 to array.size(supplyBoxes) - 1
-    if not array.get(supplyHit, i)
-        b    = array.get(supplyBoxes, i)
-        zTop = box.get_top(b)
-        zBot = box.get_bottom(b)
-        if close <= zTop and close >= zBot
-            array.set(supplyHit, i, true)
-            box.set_extend(b, extend.none)
-            box.set_right(b, bar_index)
-            if showMit
-                box.set_bgcolor(b, mitCol)
-                box.set_border_color(b, color.new(color.gray, 60))
-            else
-                box.delete(b)
-        else if showEntry and not array.get(supplyEntryDone, i) and not na(currPH)
-            pivH = currPH
-            if pivH <= zTop + 0.5 * currAtr and pivH >= zBot - 0.5 * currAtr
-                if na(array.get(supplyFirstHi, i))
-                    array.set(supplyFirstHi, i, pivH)
-                else if pivH < array.get(supplyFirstHi, i)
-                    array.set(supplyEntryDone, i, true)
-                    label.new(bar_index - entryPLen, pivH, "ENTRY\nSELL", color=color.new(color.orange, 10), textcolor=color.white, style=label.style_label_down, size=size.small)
+if array.size(supplyBoxes) > 0
+    for i = 0 to array.size(supplyBoxes) - 1
+        if not array.get(supplyHit, i)
+            b    = array.get(supplyBoxes, i)
+            zTop = box.get_top(b)
+            zBot = box.get_bottom(b)
+            if close <= zTop and close >= zBot
+                array.set(supplyHit, i, true)
+                box.set_extend(b, extend.none)
+                box.set_right(b, bar_index)
+                if showMit
+                    box.set_bgcolor(b, mitCol)
+                    box.set_border_color(b, color.new(color.gray, 60))
+                else
+                    box.delete(b)
+            else if showEntry and not array.get(supplyEntryDone, i) and not na(currPH)
+                pivH = currPH
+                if pivH <= zTop + 0.5 * currAtr and pivH >= zBot - 0.5 * currAtr
+                    if na(array.get(supplyFirstHi, i))
+                        array.set(supplyFirstHi, i, pivH)
+                    else if pivH < array.get(supplyFirstHi, i)
+                        array.set(supplyEntryDone, i, true)
+                        label.new(bar_index - entryPLen, pivH, "ENTRY\nSELL", color=color.new(color.orange, 10), textcolor=color.white, style=label.style_label_down, size=size.small)
 
 // Demand zones: mitigation check then entry guide (2nd higher low = buy entry)
-for i = 0 to array.size(demandBoxes) - 1
-    if not array.get(demandHit, i)
-        b    = array.get(demandBoxes, i)
-        zTop = box.get_top(b)
-        zBot = box.get_bottom(b)
-        if close >= zBot and close <= zTop
-            array.set(demandHit, i, true)
-            box.set_extend(b, extend.none)
-            box.set_right(b, bar_index)
-            if showMit
-                box.set_bgcolor(b, mitCol)
-                box.set_border_color(b, color.new(color.gray, 60))
-            else
-                box.delete(b)
-        else if showEntry and not array.get(demandEntryDone, i) and not na(currPL)
-            pivL = currPL
-            if pivL >= zBot - 0.5 * currAtr and pivL <= zTop + 0.5 * currAtr
-                if na(array.get(demandFirstLo, i))
-                    array.set(demandFirstLo, i, pivL)
-                else if pivL > array.get(demandFirstLo, i)
-                    array.set(demandEntryDone, i, true)
-                    label.new(bar_index - entryPLen, pivL, "ENTRY\nBUY", color=color.new(color.blue, 10), textcolor=color.white, style=label.style_label_up, size=size.small)
+if array.size(demandBoxes) > 0
+    for i = 0 to array.size(demandBoxes) - 1
+        if not array.get(demandHit, i)
+            b    = array.get(demandBoxes, i)
+            zTop = box.get_top(b)
+            zBot = box.get_bottom(b)
+            if close >= zBot and close <= zTop
+                array.set(demandHit, i, true)
+                box.set_extend(b, extend.none)
+                box.set_right(b, bar_index)
+                if showMit
+                    box.set_bgcolor(b, mitCol)
+                    box.set_border_color(b, color.new(color.gray, 60))
+                else
+                    box.delete(b)
+            else if showEntry and not array.get(demandEntryDone, i) and not na(currPL)
+                pivL = currPL
+                if pivL >= zBot - 0.5 * currAtr and pivL <= zTop + 0.5 * currAtr
+                    if na(array.get(demandFirstLo, i))
+                        array.set(demandFirstLo, i, pivL)
+                    else if pivL > array.get(demandFirstLo, i)
+                        array.set(demandEntryDone, i, true)
+                        label.new(bar_index - entryPLen, pivL, "ENTRY\nBUY", color=color.new(color.blue, 10), textcolor=color.white, style=label.style_label_up, size=size.small)
