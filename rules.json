@@ -1,50 +1,146 @@
 {
-  "watchlist": ["BTCUSDT"],
-  "default_timeframe": "1m",
-
   "strategy": {
-    "name": "VWAP + RSI(3) + EMA(8) Scalping Strategy",
-    "sources": ["Lewis Jackson"],
-    "description": "Three indicators, each doing a different job. EMA(8) for trend direction, VWAP for session bias, RSI(3) for entry timing. All three must align before a trade fires."
+    "name": "Elder Santis — OrderFlow Supply & Demand Strategy",
+    "version": "1.0",
+    "win_rate": 0.68,
+    "risk_reward_minimum": 2.0,
+    "timeframes": {
+      "direction": "4H",
+      "key_levels": "30min",
+      "entry": "5min"
+    },
+    "description": "Multi-timeframe strategy using market structure, supply/demand zones, and order flow confirmation for high-probability entries."
   },
-
-  "indicators": {
-    "ema_8": "Trend direction. Price above EMA(8) = bullish momentum. Below = bearish.",
-    "vwap": "Session bias. Price above VWAP = buyers in control. Below = sellers. Resets at midnight UTC.",
-    "rsi_3": "Entry timing. RSI on 3 candles only — extremely sensitive. Below 30 in an uptrend = snap-back setup. Above 70 in a downtrend = reversal likely."
+  "step1_market_structure": {
+    "description": "Identify trend direction on the 4H timeframe BEFORE doing anything else.",
+    "bullish": {
+      "definition": "3 higher highs and 2 higher lows on 4H",
+      "allowed_trades": ["longs off demand zones", "break retest of supply"]
+    },
+    "bearish": {
+      "definition": "3 lower lows and 2 lower highs on 4H",
+      "allowed_trades": ["shorts off supply zones", "break retest of demand"]
+    },
+    "balanced": {
+      "definition": "3 equal highs and 3 equal lows on 4H",
+      "allowed_trades": ["longs at range bottom", "shorts at range top"],
+      "avoid": "breakouts"
+    },
+    "unclear": {
+      "definition": "Structure does not fit bullish, bearish, or balanced",
+      "action": "DO NOT TRADE. Sit on hands and wait."
+    }
   },
-
-  "bias_criteria": {
-    "bullish": ["Price is above VWAP", "Price is above EMA(8)"],
-    "bearish": ["Price is below VWAP", "Price is below EMA(8)"]
-  },
-
-  "entry_rules": {
-    "long": [
-      "Price is above VWAP — buyers in control for the session",
-      "Price is above EMA(8) — uptrend confirmed",
-      "RSI(3) has dropped below 30 — short-term pullback in an uptrend, snap-back likely"
+  "step2_supply_demand_zones": {
+    "description": "Draw key levels on the 30-minute timeframe only.",
+    "rules": [
+      "Only mark OBVIOUS big and fast moves — if you are unsure, skip it",
+      "Cherry pick only the clearest levels",
+      "No maybes — must be certain"
     ],
-    "short": [
-      "Price is below VWAP — sellers in control",
-      "Price is below EMA(8) — downtrend confirmed",
-      "RSI(3) has spiked above 70 — overbought in a downtrend, reversal likely"
-    ]
+    "demand_zone": {
+      "trigger": "Big move UP on 30min chart",
+      "how_to_draw": [
+        "Identify consolidation or neutral candle BEFORE the big move up",
+        "Bottom of box = bottom wick of consolidation candle",
+        "Top of box = top body of consolidation candle"
+      ]
+    },
+    "supply_zone": {
+      "trigger": "Big move DOWN on 30min chart",
+      "how_to_draw": [
+        "Identify consolidation or neutral candle BEFORE the big move down",
+        "Top of box = top wick of consolidation candle",
+        "Bottom of box = bottom body of consolidation candle"
+      ]
+    }
   },
-
-  "exit_rules": [
-    "Exit when RSI(3) crosses back above 50 (for longs) or below 50 (for shorts)",
-    "Hard stop: 0.3% below entry for longs, 0.3% above entry for shorts",
-    "Take profit at next VWAP touch or EMA(8) cross"
+  "step3_exit_plan": {
+    "description": "Know your exit BEFORE entering. Never adjust stop loss — only adjust entry and size.",
+    "stop_loss": {
+      "longs": "Place at the swing low — where thesis is invalid",
+      "shorts": "Place at the swing high — where thesis is invalid",
+      "rule": "Stop loss goes where thesis is INVALID — never based on dollar amount"
+    },
+    "take_profit": {
+      "primary_target": "VWAP",
+      "vwap_settings": "Source = (High + Low + Close) / 3",
+      "rules": {
+        "shorts": {
+          "vwap_below_price": "Target VWAP",
+          "vwap_above_price": "Target last swing low"
+        },
+        "longs": {
+          "vwap_above_price": "Target VWAP",
+          "vwap_below_price": "Target last swing high"
+        }
+      }
+    },
+    "risk_reward": {
+      "minimum": "2:1 — distance to take profit must be DOUBLE distance to stop loss",
+      "rule": "If setup does not offer 2:1 R:R — DO NOT TAKE THE TRADE"
+    }
+  },
+  "step4_five_minute_structure": {
+    "description": "Zoom into 5min after price taps key level. Wait for structure shift.",
+    "longs": {
+      "required": "Higher high AND higher low on 5min chart",
+      "then": "Look for order flow entry trigger at the higher low"
+    },
+    "shorts": {
+      "required": "Lower low AND lower high on 5min chart",
+      "then": "Look for order flow entry trigger at the lower high"
+    }
+  },
+  "step5_order_flow_entry": {
+    "description": "Use Bookmap or footprint chart on 5min to confirm entry.",
+    "concepts": {
+      "exhaustion": "Aggressive buyers or sellers getting smaller and smaller until they disappear",
+      "absorption": "Large passive order absorbs aggressive market orders with no follow-through"
+    },
+    "entry_long": {
+      "step1": "See seller exhaustion OR absorption at key level",
+      "step2": "Wait for aggressive buyer to fill a passive sell offer",
+      "step3": "See a bid printed ABOVE that fill",
+      "step4": "Confirm 2:1 R:R still valid",
+      "step5": "Press BUY"
+    },
+    "entry_short": {
+      "step1": "See buyer exhaustion OR absorption at key level",
+      "step2": "Wait for aggressive seller to fill a passive buy offer",
+      "step3": "See an offer printed BELOW that fill",
+      "step4": "Confirm 2:1 R:R still valid",
+      "step5": "Press SELL"
+    }
+  },
+  "golden_rules": [
+    "RULE 1: If structure is unclear on 4H — DO NOT TRADE",
+    "RULE 2: Only trade OBVIOUS supply and demand levels — no maybes",
+    "RULE 3: Know your stop loss and take profit BEFORE entering",
+    "RULE 4: Stop loss goes where thesis is invalid — never based on dollar amount",
+    "RULE 5: Minimum 2:1 risk-to-reward on EVERY trade — no exceptions",
+    "RULE 6: Wait for 5min structure shift before looking for entry",
+    "RULE 7: Wait for order flow confirmation before pressing buy/sell",
+    "RULE 8: You only need 5 good trading days per month — quality over quantity",
+    "RULE 9: Be a hunter — patience and discipline make this strategy golden",
+    "RULE 10: Review and journal trades weekly"
   ],
-
-  "risk_rules": [
-    "Risk maximum 1% of portfolio per trade",
-    "Maximum trade size capped by MAX_TRADE_SIZE_USD in .env",
-    "Maximum trades per day capped by MAX_TRADES_PER_DAY in .env",
-    "Do not trade if price is more than 1.5% away from VWAP — overextended",
-    "Paper trade first — validate this strategy on your specific asset before going live"
-  ],
-
-  "notes": "Scalping strategy — designed for 1m to 5m timeframes. RSI(3) is intentionally fast and sensitive. Do not apply to higher timeframes."
+  "indicators": {
+    "vwap": {
+      "type": "VWAP",
+      "source": "(High + Low + Close) / 3",
+      "purpose": "Primary take profit target"
+    },
+    "order_flow_tool": {
+      "preferred": "Bookmap",
+      "alternatives": ["Flipper", "Chart", "DOM", "Footprint chart"],
+      "purpose": "Read aggressive vs passive order flow for entry confirmation"
+    }
+  },
+  "trading_sessions": {
+    "trades_per_day": "1-2 maximum",
+    "hours_per_day": "1-2 hours",
+    "trading_days_needed_per_month": 5,
+    "philosophy": "Less is more — wait for A+ setups only"
+  }
 }
