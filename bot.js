@@ -1,41 +1,42 @@
-/**
- * Claude + TradingView MCP — Automated Trading Bot
- * Modified for WebhookTrade + Coinexx + XAUUSD
- */
-
 import "dotenv/config";
 import { readFileSync, writeFileSync, existsSync, appendFileSync } from "fs";
 import { execSync } from "child_process";
+import express from "express";
 
-// ─── Onboarding ───────────────────────────────────────────────────────────────
+// ─── EXPRESS WEBHOOK SERVER ───────────────────────────────────────────────────
 
-function checkOnboarding() {
-  const required = ["WEBHOOKTRADE_USERNAME", "WEBHOOKTRADE_API_KEY", "WEBHOOKTRADE_URL"];
-  const missing = required.filter((k) => !process.env[k]);
+const app = express();
+app.use(express.json());
 
-  if (!existsSync(".env")) {
-    console.log("\n⚠️  No .env file found.\n");
-    process.exit(0);
+app.get("/", (req, res) => {
+  res.send("Claude Trading Bot is running ✅");
+});
+
+app.post("/webhook", async (req, res) => {
+  console.log("\n📡 Webhook received:", JSON.stringify(req.body));
+  res.json({ status: "received", timestamp: new Date().toISOString() });
+  try {
+    await run();
+  } catch (err) {
+    console.error("Bot error from webhook:", err.message);
   }
+});
 
-  if (missing.length > 0) {
-    console.log(`\n⚠️  Missing credentials in .env: ${missing.join(", ")}`);
-    try { execSync("open .env"); } catch {}
-    process.exit(0);
-  }
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Claude Trading Bot listening on port ${PORT}`);
+  console.log(`   Health check: http://localhost:${PORT}/`);
+  console.log(`   Webhook endpoint: http://localhost:${PORT}/webhook`);
+});
 
-  const csvPath = new URL("trades.csv", import.meta.url).pathname;
-  console.log(`\n📄 Trade log: ${csvPath}\n`);
-}
-
-// ─── Config ────────────────────────────────────────────────────────────────
+// ─── CONFIG ───────────────────────────────────────────────────────────────────
 
 const CONFIG = {
   symbol: process.env.SYMBOL || "XAUUSD",
   timeframe: process.env.TIMEFRAME || "4H",
   portfolioValue: parseFloat(process.env.PORTFOLIO_VALUE_USD || "1000"),
   maxTradeSizeUSD: parseFloat(process.env.MAX_TRADE_SIZE_USD || "100"),
-  maxTradesPerDay: parseInt(process.env.MAX_TRADES_PER_DAY || "3"),
+  maxTradesPerDay: parseInt(process.env.MAX_TRADES_PER_DAY || "2"),
   paperTrading: process.env.PAPER_TRADING !== "false",
   tradeSizeLots: parseFloat(process.env.TRADE_SIZE_LOTS || "0.1"),
   webhooktrade: {
@@ -46,8 +47,9 @@ const CONFIG = {
 };
 
 const LOG_FILE = "safety-check-log.json";
+const CSV_FILE = "trades.csv";
 
-// ─── Logging ────────────────────────────────────────────────────────────────
+// ─── LOGGING ──────────────────────────────────────────────────────────────────
 
 function loadLog() {
   if (!existsSync(LOG_FILE)) return { trades: [] };
@@ -65,39 +67,38 @@ function countTodaysTrades(log) {
   ).length;
 }
 
-// ─── Market Data (Gold / XAUUSD via Metals-API fallback to mock) ─────────────
+// ─── MARKET DATA (XAUUSD via Yahoo Finance) ───────────────────────────────────
 
-async function fetchCandles(symbol, interval, limit = 100) {
-  // Use Binance for crypto, or a public gold price API for XAUUSD
+async function fetchCandles(symbol) {
   if (symbol === "XAUUSD") {
-    // Fetch live gold price from a public source
     const res = await fetch(
       "https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1h&range=7d"
     );
     if (!res.ok) throw new Error(`Yahoo Finance error: ${res.status}`);
     const data = await res.json();
-    const timestamps = data.chart.result[0].timestamp;
-    const closes = data.chart.result[0].indicators.quote[0].close;
-    const highs = data.chart.result[0].indicators.quote[0].high;
-    const lows = data.chart.result[0].indicators.quote[0].low;
-    const volumes = data.chart.result[0].indicators.quote[0].volume;
+    const result = data.chart.result[0];
+    const timestamps = result.timestamp;
+    const closes = result.indicators.quote[0].close;
+    const highs = result.indicators.quote[0].high;
+    const lows = result.indicators.quote[0].low;
+    const volumes = result.indicators.quote[0].volume;
 
-    return timestamps.map((t, i) => ({
-      time: t * 1000,
-      open: closes[i],
-      high: highs[i],
-      low: lows[i],
-      close: closes[i],
-      volume: volumes[i] || 1,
-    })).filter(c => c.close !== null);
+    return timestamps
+      .map((t, i) => ({
+        time: t * 1000,
+        open: closes[i],
+        high: highs[i],
+        low: lows[i],
+        close: closes[i],
+        volume: volumes[i] || 1,
+      }))
+      .filter((c) => c.close !== null);
   }
 
-  // Default: Binance (for crypto symbols)
-  const intervalMap = {
-    "1H": "1h", "4H": "4h", "1D": "1d", "15m": "15m", "1m": "1m"
-  };
-  const binanceInterval = intervalMap[interval] || "1h";
-  const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${binanceInterval}&limit=${limit}`;
+  // Fallback: Binance for crypto
+  const intervalMap = { "1H": "1h", "4H": "4h", "1D": "1d", "15m": "15m" };
+  const binanceInterval = intervalMap[CONFIG.timeframe] || "1h";
+  const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${binanceInterval}&limit=500`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Binance API error: ${res.status}`);
   const data = await res.json();
@@ -111,7 +112,7 @@ async function fetchCandles(symbol, interval, limit = 100) {
   }));
 }
 
-// ─── Indicators ──────────────────────────────────────────────────────────────
+// ─── INDICATORS ───────────────────────────────────────────────────────────────
 
 function calcEMA(closes, period) {
   const multiplier = 2 / (period + 1);
@@ -148,9 +149,9 @@ function calcVWAP(candles) {
   return cumVol === 0 ? null : cumTPV / cumVol;
 }
 
-// ─── Safety Check ────────────────────────────────────────────────────────────
+// ─── SAFETY CHECK (Elder Santis Rules) ────────────────────────────────────────
 
-function runSafetyCheck(price, ema8, vwap, rsi3, rules) {
+function runSafetyCheck(price, ema8, vwap, rsi3) {
   const results = [];
 
   const check = (label, required, actual, pass) => {
@@ -186,7 +187,7 @@ function runSafetyCheck(price, ema8, vwap, rsi3, rules) {
   return { results, allPass: results.every((r) => r.pass) };
 }
 
-// ─── Trade Limits ────────────────────────────────────────────────────────────
+// ─── TRADE LIMITS ─────────────────────────────────────────────────────────────
 
 function checkTradeLimits(log) {
   const todayCount = countTodaysTrades(log);
@@ -201,7 +202,7 @@ function checkTradeLimits(log) {
   return true;
 }
 
-// ─── WebhookTrade Execution ───────────────────────────────────────────────────
+// ─── WEBHOOKTRADE EXECUTION ───────────────────────────────────────────────────
 
 async function placeWebhookTradeOrder(symbol, side, lots) {
   const res = await fetch(CONFIG.webhooktrade.url, {
@@ -220,9 +221,8 @@ async function placeWebhookTradeOrder(symbol, side, lots) {
   return data;
 }
 
-// ─── CSV Logging ─────────────────────────────────────────────────────────────
+// ─── CSV LOGGING ──────────────────────────────────────────────────────────────
 
-const CSV_FILE = "trades.csv";
 const CSV_HEADERS = [
   "Date", "Time (UTC)", "Exchange", "Symbol", "Side",
   "Lots", "Price", "Order ID", "Mode", "Notes"
@@ -241,7 +241,7 @@ function writeTradeCsv(logEntry) {
   const time = now.toISOString().slice(11, 19);
   const mode = !logEntry.allPass ? "BLOCKED" : logEntry.paperTrading ? "PAPER" : "LIVE";
   const notes = !logEntry.allPass
-    ? `Failed: ${logEntry.conditions.filter(c => !c.pass).map(c => c.label).join("; ")}`
+    ? `Failed: ${logEntry.conditions.filter((c) => !c.pass).map((c) => c.label).join("; ")}`
     : logEntry.error ? `Error: ${logEntry.error}` : "All conditions met";
 
   const row = [
@@ -258,13 +258,12 @@ function writeTradeCsv(logEntry) {
   console.log(`📄 Trade record saved → ${CSV_FILE}`);
 }
 
-// ─── Main ────────────────────────────────────────────────────────────────────
+// ─── MAIN BOT LOGIC ───────────────────────────────────────────────────────────
 
 async function run() {
-  checkOnboarding();
   initCsv();
 
-  console.log("═══════════════════════════════════════════════════════════");
+  console.log("\n═══════════════════════════════════════════════════════════");
   console.log("  Claude Trading Bot — WebhookTrade + Coinexx Edition");
   console.log(`  ${new Date().toISOString()}`);
   console.log(`  Mode: ${CONFIG.paperTrading ? "📋 PAPER TRADING" : "🔴 LIVE TRADING"}`);
@@ -281,7 +280,7 @@ async function run() {
   }
 
   console.log("\n── Fetching market data ────────────────────────────────\n");
-  const candles = await fetchCandles(CONFIG.symbol, CONFIG.timeframe, 500);
+  const candles = await fetchCandles(CONFIG.symbol);
   const closes = candles.map((c) => c.close);
   const price = closes[closes.length - 1];
   console.log(`  Current XAUUSD price: $${price.toFixed(2)}`);
@@ -299,7 +298,7 @@ async function run() {
     return;
   }
 
-  const { results, allPass } = runSafetyCheck(price, ema8, vwap, rsi3, rules);
+  const { results, allPass } = runSafetyCheck(price, ema8, vwap, rsi3);
 
   console.log("\n── Decision ─────────────────────────────────────────────\n");
 
@@ -325,7 +324,7 @@ async function run() {
 
     if (CONFIG.paperTrading) {
       console.log(`\n📋 PAPER TRADE — would send ${CONFIG.tradeSizeLots} lots BUY ${CONFIG.symbol} to Coinexx`);
-      console.log(`   (Set PAPER_TRADING=false in .env to place real orders)`);
+      console.log(`   (Set PAPER_TRADING=false in Railway variables to go live)`);
       logEntry.orderPlaced = true;
       logEntry.orderId = `PAPER-${Date.now()}`;
     } else {
@@ -346,11 +345,5 @@ async function run() {
   saveLog(log);
   console.log(`\nDecision log saved → ${LOG_FILE}`);
   writeTradeCsv(logEntry);
-
   console.log("═══════════════════════════════════════════════════════════\n");
 }
-
-run().catch((err) => {
-  console.error("Bot error:", err);
-  process.exit(1);
-});
