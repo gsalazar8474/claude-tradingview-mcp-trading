@@ -11,31 +11,83 @@ app.get("/", (req, res) => {
   res.send("Claude Trading Bot is running ✅");
 });
 
+const BIAS_FILE = "market-bias.json";
+
+// Load/save the current 4H market bias so the 5min alert can verify alignment.
+function loadBias() {
+  if (!existsSync(BIAS_FILE)) return { bias: "unclear", updatedAt: null };
+  return JSON.parse(readFileSync(BIAS_FILE, "utf8"));
+}
+function saveBias(bias, price) {
+  writeFileSync(BIAS_FILE, JSON.stringify({ bias, price, updatedAt: new Date().toISOString() }, null, 2));
+}
+
 // Parses TradingView alert payloads into a normalised signal object.
-// TV alert JSON typically looks like:
-//   { "action": "buy", "symbol": "XAUUSD", "close": "{{close}}", "time": "{{time}}" }
+// Supports three alert types from the Elder Santis Pine scripts:
+//   1. 4H bias   : { "action": "bias",  "bias": "bullish"|"bearish", ... }
+//   2. 5min shift: { "action": "buy"|"sell", "signal": "5min_structure_shift", ... }
+//   3. Generic   : { "action": "buy"|"sell", ... }
 function parseTradingViewAlert(body) {
   if (!body || typeof body !== "object") return null;
-  const action = (body.action || body.signal || "").toLowerCase();
+  const action = (body.action || "").toLowerCase();
+  const rawSymbol = body.symbol || body.ticker || "";
+  const symbol = rawSymbol.includes(":") ? rawSymbol.split(":")[1] : rawSymbol || null;
+  const price = parseFloat(body.close || body.price || 0) || null;
+
+  // 4H bias update — do not execute a trade, just update state
+  if (action === "bias") {
+    return { type: "bias", bias: (body.bias || "unclear").toLowerCase(), symbol, price, raw: body };
+  }
+
+  // Trade signal (5min structure shift or generic)
   const side = action === "buy" || action === "long" ? "BUY"
              : action === "sell" || action === "short" ? "SELL"
              : null;
-  const rawSymbol = body.symbol || body.ticker || "";
-  // Strip exchange prefix (e.g. "OANDA:XAUUSD" → "XAUUSD")
-  const symbol = rawSymbol.includes(":") ? rawSymbol.split(":")[1] : rawSymbol || null;
-  const price = parseFloat(body.close || body.price || 0) || null;
-  return { side, symbol, price, raw: body };
+  const signalName = body.signal || null;
+  return { type: "trade", side, signalName, symbol, price, raw: body };
 }
 
 app.post("/webhook", async (req, res) => {
   const signal = parseTradingViewAlert(req.body);
   console.log("\n📡 Webhook received:", JSON.stringify(req.body));
-  if (signal?.side) {
-    console.log(`   ↳ TradingView signal: ${signal.side} ${signal.symbol || ""} @ ${signal.price || "market"}`);
-  }
   res.json({ status: "received", timestamp: new Date().toISOString() });
+
   try {
-    await run(signal);
+    if (!signal) {
+      console.log("   ↳ Could not parse alert body — ignoring.");
+      return;
+    }
+
+    // ── 4H BIAS UPDATE ────────────────────────────────────────────────
+    if (signal.type === "bias") {
+      saveBias(signal.bias, signal.price);
+      console.log(`   ↳ 4H bias updated → ${signal.bias.toUpperCase()} @ ${signal.price || "?"}`);
+      console.log(`   ↳ No trade execution for bias alerts.`);
+      return;
+    }
+
+    // ── TRADE SIGNAL ──────────────────────────────────────────────────
+    if (signal.type === "trade" && signal.side) {
+      const bias = loadBias();
+      console.log(`   ↳ Trade signal: ${signal.side} ${signal.symbol || ""} @ ${signal.price || "market"}`);
+      if (signal.signalName) console.log(`   ↳ Signal type: ${signal.signalName}`);
+      console.log(`   ↳ Current 4H bias: ${bias.bias.toUpperCase()} (updated ${bias.updatedAt || "never"})`);
+
+      // Warn if trade direction conflicts with stored 4H bias
+      if (bias.bias !== "unclear") {
+        const biasFits =
+          (signal.side === "BUY"  && bias.bias === "bullish") ||
+          (signal.side === "SELL" && bias.bias === "bearish");
+        if (!biasFits) {
+          console.log(`   ⚠️  Signal direction (${signal.side}) conflicts with 4H bias (${bias.bias}) — running safety check anyway.`);
+        }
+      }
+
+      await run(signal);
+      return;
+    }
+
+    console.log("   ↳ No actionable signal found in payload.");
   } catch (err) {
     console.error("Bot error from webhook:", err.message);
   }
