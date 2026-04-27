@@ -1,146 +1,393 @@
 {
   "strategy": {
-    "name": "Elder Santis — OrderFlow Supply & Demand Strategy",
-    "version": "1.0",
-    "win_rate": 0.68,
-    "risk_reward_minimum": 2.0,
-    "timeframes": {
-      "direction": "4H",
-      "key_levels": "30min",
-      "entry": "5min"
-    },
-    "description": "Multi-timeframe strategy using market structure, supply/demand zones, and order flow confirmation for high-probability entries."
+    "name": "Elder Santis — Order Flow Supply & Demand Strategy (XAUUSD Edition)",
+    "version": "2.0",
+    "source": "Transcripts from @tradingelder YouTube channel (scraped 2026-04-27)",
+    "asset": "XAUUSD (Gold/Forex)",
+    "broker": "Coinexx via WebhookTrade",
+    "paper_trading": true,
+    "day_win_rate": 0.7385,
+    "profit_factor": 4.0,
+    "description": "Multi-timeframe order flow strategy: 4H market structure → 30min supply/demand zones → 5min order flow entry trigger. Built on reading aggressive vs passive participants via Bookmap and footprint charts. Never predict — only react."
   },
+
+  "timeframes": {
+    "structure": "4H — determine market bias (bullish / bearish / balanced / unclear)",
+    "key_levels": "30min — draw supply and demand zones",
+    "entry": "5min — wait for structure shift, then read order flow for entry trigger"
+  },
+
+  "bookmap_color_legend": {
+    "description": "Bookmap visualises every order in the market in real time. Learn these colors — they are the language of order flow.",
+    "green_balls": "Aggressive BUYERS — market orders hitting the ask. Bullish pressure. The bigger the ball, the more volume.",
+    "red_balls": "Aggressive SELLERS — market orders hitting the bid. Bearish pressure. The bigger the ball, the more volume.",
+    "orange_lines_above_price": "Passive SELLERS — resting limit sell orders. Act as a ceiling / supply wall. Price must absorb or break through these to go up.",
+    "orange_lines_below_price": "Passive BUYERS — resting limit buy orders. Act as a floor / demand wall. Price must absorb or break through these to go down.",
+    "key_insight": "Price moves when aggressive market orders overwhelm passive limit orders. If aggressive buyers overwhelm passive sellers (orange lines above), price breaks up. If aggressive sellers overwhelm passive buyers (orange lines below), price breaks down."
+  },
+
   "step1_market_structure": {
-    "description": "Identify trend direction on the 4H timeframe BEFORE doing anything else.",
+    "description": "ALWAYS identify 4H trend first. Never skip this. The average time spent trending is much greater than the time spent reversing — trade WITH structure.",
+    "how_to_read": "Look at the 4H chart. Are highs getting higher? Are lows getting higher? Or the opposite?",
     "bullish": {
-      "definition": "3 higher highs and 2 higher lows on 4H",
-      "allowed_trades": ["longs off demand zones", "break retest of supply"]
+      "definition": "3 higher highs AND 2 higher lows on the 4H chart",
+      "allowed_trades": [
+        "LONGS off 30min demand zones (bounce)",
+        "LONGS off break-retest of 30min supply (breakout continuation)"
+      ],
+      "forbidden": "DO NOT take shorts in a bullish 4H market"
     },
     "bearish": {
-      "definition": "3 lower lows and 2 lower highs on 4H",
-      "allowed_trades": ["shorts off supply zones", "break retest of demand"]
+      "definition": "3 lower lows AND 2 lower highs on the 4H chart",
+      "allowed_trades": [
+        "SHORTS off 30min supply zones (bounce)",
+        "SHORTS off break-retest of 30min demand (breakout continuation)"
+      ],
+      "forbidden": "DO NOT take longs in a bearish 4H market"
     },
     "balanced": {
-      "definition": "3 equal highs and 3 equal lows on 4H",
-      "allowed_trades": ["longs at range bottom", "shorts at range top"],
-      "avoid": "breakouts"
+      "definition": "3 equal highs AND 3 equal lows on the 4H chart (consolidation range)",
+      "allowed_trades": [
+        "LONGS at the bottom of the range (demand)",
+        "SHORTS at the top of the range (supply)"
+      ],
+      "forbidden": "DO NOT trade breakouts in balanced market — high fake-out rate"
     },
     "unclear": {
-      "definition": "Structure does not fit bullish, bearish, or balanced",
-      "action": "DO NOT TRADE. Sit on hands and wait."
+      "definition": "Structure does not clearly fit bullish, bearish, or balanced",
+      "action": "DO NOT TRADE. Sit on hands and wait. If you do not know what is going on on the 4H, you do not risk your money. Full stop."
     }
   },
+
   "step2_supply_demand_zones": {
-    "description": "Draw key levels on the 30-minute timeframe only.",
-    "rules": [
-      "Only mark OBVIOUS big and fast moves — if you are unsure, skip it",
-      "Cherry pick only the clearest levels",
-      "No maybes — must be certain"
-    ],
+    "description": "Draw key levels on the 30min chart ONLY. These zones mark where institutional money has entered previously — supply/demand requires hundreds of millions of dollars to create, which is why they tend to hold.",
+    "core_principle": "Only mark OBVIOUS big and fast moves. If you are unsure about a zone, skip it. No maybes. Cherry-pick only the clearest levels.",
+
     "demand_zone": {
-      "trigger": "Big move UP on 30min chart",
+      "trigger": "Big, fast move UP on the 30min chart",
       "how_to_draw": [
-        "Identify consolidation or neutral candle BEFORE the big move up",
-        "Bottom of box = bottom wick of consolidation candle",
-        "Top of box = top body of consolidation candle"
-      ]
+        "1. Find the consolidation or neutral candle IMMEDIATELY BEFORE the big move up",
+        "2. Bottom of the box = bottom wick of that consolidation candle",
+        "3. Top of the box = top body (close) of that consolidation candle",
+        "4. Extend the box forward until price revisits it"
+      ],
+      "confirmation_with_bookmap": "Look inside the zone on Bookmap. Confirm there are resting orange lines (passive buy orders) sitting in that level — not flashing orders, orders that have been there a while. This confirms the zone is defended by real liquidity.",
+      "confirmation_with_footprint": "Check footprint chart for the zone. Look for aggressive buy-side absorption history: big delta numbers that got absorbed with no follow-through downward, then a big move up. This confirms a real demand imbalance was created here."
     },
+
     "supply_zone": {
-      "trigger": "Big move DOWN on 30min chart",
+      "trigger": "Big, fast move DOWN on the 30min chart",
       "how_to_draw": [
-        "Identify consolidation or neutral candle BEFORE the big move down",
-        "Top of box = top wick of consolidation candle",
-        "Bottom of box = bottom body of consolidation candle"
-      ]
+        "1. Find the consolidation or neutral candle IMMEDIATELY BEFORE the big move down",
+        "2. Top of the box = top wick of that consolidation candle",
+        "3. Bottom of the box = bottom body (close) of that consolidation candle",
+        "4. Extend the box forward until price revisits it"
+      ],
+      "confirmation_with_bookmap": "Look inside the zone on Bookmap. Confirm there are resting orange lines (passive sell orders) sitting at that level — orders that have sat there for a while, not fresh orders just placed. This confirms real sellers are defending the zone.",
+      "confirmation_with_footprint": "Check footprint chart for the zone. Look for sell-side absorption history: big delta numbers that got absorbed with no follow-through upward, then a big move down."
+    },
+
+    "zone_strength_rules": [
+      "Zones that have been tested fewer times are stronger (untouched demand/supply is best)",
+      "Zones with visible passive order confluence on Bookmap are higher probability",
+      "Zones with footprint absorption history are higher probability",
+      "The bigger and faster the original move that created the zone, the stronger it is",
+      "Do not mark a zone if the original move was not clearly big and fast — skip it"
+    ]
+  },
+
+  "step3_exit_plan": {
+    "description": "Know EXACTLY where you are getting out before you enter. Never skip this step. Set up stop loss and take profit BEFORE pressing buy or sell. You can only adjust entry and size — NEVER move your stop loss.",
+
+    "stop_loss": {
+      "principle": "Stop loss goes where your thesis is INVALID — never based on a dollar amount",
+      "longs_bounce": "Place below the HIGHER LOW formed on the 5min chart. If price comes back below that low and makes a new low, your thesis (that this was a higher low leading to a bounce) is wrong — get out.",
+      "shorts_bounce": "Place above the LOWER HIGH formed on the 5min chart. If price comes back above that high and makes a new high, your thesis is wrong — get out.",
+      "longs_break_retest": "Place below the higher low formed after the breakout retest. If that becomes a new lower low, the break-retest thesis is invalid.",
+      "shorts_break_retest": "Place above the lower high formed after the break-retest. If that becomes a new higher high, the break-retest thesis is invalid.",
+      "rule": "If you cannot afford the stop loss because it is too far, adjust your position SIZE — never move the stop to something closer. A tighter stop just gets you stopped out by noise."
+    },
+
+    "take_profit": {
+      "primary_tool": "VWAP — Volume Weighted Average Price. Source: (High + Low + Close) / 3. This is the blue line. It acts as a magnet for price.",
+      "for_shorts": {
+        "vwap_below_price": "VWAP is below current price → target VWAP (price is likely to be pulled toward it)",
+        "vwap_above_price": "VWAP is above current price (already good confluence for shorts) → target the last swing LOW we have made"
+      },
+      "for_longs": {
+        "vwap_above_price": "VWAP is above current price → target VWAP",
+        "vwap_below_price": "VWAP is below current price (already good confluence for longs) → target the last swing HIGH we have made"
+      },
+      "at_all_time_highs": "When price is at all-time highs, look for resting passive orders on Bookmap (orange lines that have been sitting for 1+ hour) above price and use those as your target — they are the only reference points you have at undiscovered prices."
+    },
+
+    "risk_reward": {
+      "minimum": "2:1 — distance to take profit must be AT LEAST DOUBLE the distance to stop loss",
+      "rule": "If the setup does not offer 2:1 R:R — DO NOT TAKE THE TRADE. Pass. Wait for the next one.",
+      "how_to_achieve": "Adjust your ENTRY price (use a limit order closer to the key level) or adjust your SIZE. Never adjust the stop loss.",
+      "win_rate_table": {
+        "note": "With ~73% win rate, even 1:1 R:R is profitable long-term. But 2:1 minimum provides safety margin.",
+        "73pct_win_rate_required_rr": "1:1 minimum to be profitable. Use 2:1 as floor.",
+        "profit_factor_achieved": "4.0 — every $1 risked returns $4 on average"
+      }
     }
   },
-  "step3_exit_plan": {
-    "description": "Know your exit BEFORE entering. Never adjust stop loss — only adjust entry and size.",
-    "stop_loss": {
-      "longs": "Place at the swing low — where thesis is invalid",
-      "shorts": "Place at the swing high — where thesis is invalid",
-      "rule": "Stop loss goes where thesis is INVALID — never based on dollar amount"
+
+  "step4_five_minute_structure": {
+    "description": "After price enters your 30min supply or demand zone — zoom into the 5min chart and wait for a structure shift BEFORE looking for an entry. This single step eliminates most fake-outs.",
+    "why": "The 5min trend must shift in the direction of the 4H before you enter. You have no idea how much money you save by just waiting for this.",
+    "for_longs": {
+      "required": "Higher HIGH and higher LOW on the 5min chart",
+      "then": "Look for your order flow entry trigger at/from that HIGHER LOW"
     },
-    "take_profit": {
-      "primary_target": "VWAP",
-      "vwap_settings": "Source = (High + Low + Close) / 3",
-      "rules": {
-        "shorts": {
-          "vwap_below_price": "Target VWAP",
-          "vwap_above_price": "Target last swing low"
-        },
-        "longs": {
-          "vwap_above_price": "Target VWAP",
-          "vwap_below_price": "Target last swing high"
-        }
+    "for_shorts": {
+      "required": "Lower LOW and lower HIGH on the 5min chart",
+      "then": "Look for your order flow entry trigger at/from that LOWER HIGH"
+    },
+    "for_break_retest": {
+      "note": "If you are playing a breakout/break-retest, the 5min will already match the 4H direction. You do not need to wait for a structure shift — just confirm 2:1 R:R and look for order flow trigger."
+    }
+  },
+
+  "step5_order_flow_entry": {
+    "description": "This is the entry trigger. Use Bookmap (and optionally footprint charts) on the 5min to confirm who is in control before pressing buy or sell. React — do not predict.",
+
+    "concepts": {
+      "exhaustion": "Aggressive participants getting smaller and smaller. Green balls shrinking = buyers exhausting. Red balls shrinking = sellers exhausting. The move into a level is running out of steam.",
+      "absorption": "Large passive order absorbs aggressive market orders with NO follow-through. Example: massive red balls (aggressive selling) hits an orange line below (passive buyers) but price does NOT continue down — the passive buyers absorbed all of it. The key is: big volume, no follow-through.",
+      "aggressive_follow_through": "After absorption or exhaustion, the OTHER side steps in with conviction. This is your actual signal. You see the exhausted/absorbed side give up, then the other side fills a passive order AND creates a bid/offer in their direction."
+    },
+
+    "xauusd_long_entry_checklist": {
+      "description": "Full sequence for a BUY entry on XAUUSD",
+      "step1": "4H structure is BULLISH (3HH + 2HL)",
+      "step2": "Price taps a clearly-drawn 30min DEMAND zone",
+      "step3": "Bookmap confirms orange lines (passive buyers) are sitting inside/below the demand zone",
+      "step4": "5min chart forms HIGHER HIGH and HIGHER LOW (structure shift up)",
+      "step5": "Zoom into the HIGHER LOW on 5min and watch Bookmap + footprint",
+      "step6a": "See SELLER EXHAUSTION: red balls get progressively smaller and smaller into the level",
+      "step6b": "OR see BUY-SIDE ABSORPTION: large red balls (sellers) slam into orange lines below (passive buyers) but price does NOT fall — the floor holds",
+      "step7": "Wait for an AGGRESSIVE BUYER to FILL a passive sell offer (a green ball fills through an orange line above price)",
+      "step8": "See a BID printed ABOVE that fill (another green ball appears above — buyers confirming control)",
+      "step9": "Confirm: distance to VWAP or last swing high (TP) is at least DOUBLE distance to the higher low (SL)",
+      "step10": "PRESS BUY — market order, execute immediately"
+    },
+
+    "xauusd_short_entry_checklist": {
+      "description": "Full sequence for a SELL entry on XAUUSD",
+      "step1": "4H structure is BEARISH (3LL + 2LH)",
+      "step2": "Price taps a clearly-drawn 30min SUPPLY zone",
+      "step3": "Bookmap confirms orange lines (passive sellers) are sitting inside/above the supply zone",
+      "step4": "5min chart forms LOWER LOW and LOWER HIGH (structure shift down)",
+      "step5": "Zoom into the LOWER HIGH on 5min and watch Bookmap + footprint",
+      "step6a": "See BUYER EXHAUSTION: green balls get progressively smaller and smaller into the level",
+      "step6b": "OR see SELL-SIDE ABSORPTION: large green balls (buyers) slam into orange lines above (passive sellers) but price does NOT rise — the ceiling holds",
+      "step7": "Wait for an AGGRESSIVE SELLER to FILL a passive buy offer (a red ball fills through an orange line below price)",
+      "step8": "See an OFFER printed BELOW that fill (another red ball appears below — sellers confirming control)",
+      "step9": "Confirm: distance to VWAP or last swing low (TP) is at least DOUBLE distance to the lower high (SL)",
+      "step10": "PRESS SELL — market order, execute immediately"
+    },
+
+    "footprint_entry_alternative": {
+      "description": "If using footprint charts (Quantower or Bookmap add-on), use imbalances as mechanical entry triggers",
+      "imbalance_signal": "A diagonal divergence between bid and ask volume at a price level that does not move. Big ask volume (buyers) with no upward follow-through = sell-side absorption imbalance. Big bid volume (sellers) with no downward follow-through = buy-side absorption imbalance.",
+      "how_to_use": "When imbalance is plotted at your key level, use the imbalance line as your exact entry trigger and as a precise stop loss reference.",
+      "absorption_threshold": "Calculate average delta for the session. Look for 2-3x that average to classify it as meaningful absorption. For example, if average delta is 300, look for 600-900+ to confirm absorption.",
+      "stop_loss_with_imbalance": "If you miss the exact low/high, use the imbalance level as your stop loss reference — gives you a precise invalidation point away from the structural extreme."
+    }
+  },
+
+  "all_time_highs_rules": {
+    "description": "Special rules for when price is at all-time highs (new undiscovered price territory). The normal supply/demand logic is less reliable because there is no historical price action to reference.",
+    "primary_rule": "NEVER short all-time highs UNLESS you are playing a break-retest of a supply level. Win rate at shorting ATH without this rule drops below 50%. The rule is non-negotiable.",
+    "why_shorting_atl_is_dangerous": "At all-time highs, what looks like sell-side absorption (big red balls, no follow-through) is often institutions quietly BUILDING a massive long position before a continuation move. A whale cannot slam buy without showing their hand — so they sit and absorb everything sellers throw at them.",
+    "best_setups_at_ath": [
+      "Break-retest of all-time high for a LONG (most common setup at ATH)",
+      "Intraday demand bounce for a LONG (A+ setup, ATH always has strong demand)",
+      "Break-retest of a prior SUPPLY level that price just broke through (high win rate short setup)"
+    ],
+    "short_at_ath_conditions": [
+      "Price breaks below a demand level AND closes underneath it",
+      "Price retests that broken demand from below with weak buyer volume",
+      "See aggressive sellers step in at the retest → then SELL"
+    ],
+    "targets_at_ath": "Use Bookmap to find resting passive orders (orange lines) that have sat for 1+ hour above price. Use those as your target — they are the only reference points at undiscovered prices. Ignore fresh orders just placed.",
+    "mindset": "Understand what the fundamentals and macro context are when at ATH. Order flow signals can look bearish but intent is bullish (institutions accumulating). Always ask: what is the BIAS here?"
+  },
+
+  "risk_management": {
+    "description": "Risk management is the only thing that keeps you in the game long enough to become consistent. All trading skill is useless without it.",
+
+    "per_trade_rules": {
+      "stop_loss_placement": "Always at the level where your thesis is INVALID — never a dollar amount",
+      "max_risk_per_trade": "Do not risk more than 20% of your drawdown per trade",
+      "general_rule": "As a rough reference: do not risk more than $400 per trade on a standard account (adjust proportionally for your account size)",
+      "position_sizing": "Adjust position SIZE to fit the stop loss distance and meet 2:1 R:R — never the other way around",
+      "minimum_rr": "2:1 — if you cannot get 2:1, do not take the trade"
+    },
+
+    "daily_rules": {
+      "max_trades_per_day": "1-2 trades maximum. Wait for A+ setups only.",
+      "loss_rule": "After your FIRST loss of the day, allow yourself ONE additional trade maximum, win or lose — then stop. Until you have enough discipline to not let losses affect your emotions.",
+      "hard_stop": "After 3 losses OR 5 trades in a single day: SHUT THE SCREEN. Protect tomorrow. The market will be there tomorrow.",
+      "no_monetary_goals": "Never set a dollar target for a trading session. The second you attach a dollar goal, every trade becomes biased — you ask 'do I need this trade?' not 'is this a good setup?'. Those are not the same question.",
+      "pre_market_required": "Always have a plan before the open. Know exactly what 4H structure you are in, which 30min levels are active, and where VWAP is. If you do not have a plan, do not trade the open."
+    },
+
+    "weekly_rules": {
+      "red_week_protocol": "After a red week: cut position size IN HALF immediately. Do not restore size until you are consistently green again. Half size keeps you in the game while you recalibrate and regain confidence.",
+      "review": "Review and journal all trades at the end of each week. Log: entry, exit, emotional state, whether you followed your plan or not, what worked and what did not.",
+      "goal": "5 good trading days per month is all you need for a prop firm payout. Quality over quantity."
+    },
+
+    "sizing_rules": {
+      "base_size": "Stay at your BASE size until you earn the right to go bigger with CONSISTENT proven results — not just because your account is green",
+      "size_up_conditions": "Size up ONLY when you have data proving consistency — not based on feelings, not after a good week",
+      "never_size_up_after_losses": "NEVER increase size after a string of losses or revenge trade. The account was green, now it is not — this means you are cold, not hot.",
+      "xauusd_default": "Default trade size: 0.1 lots XAUUSD. Max 3 trades per day."
+    },
+
+    "emotional_rules": [
+      "Never trade when depressed, anxious, grieving, angry, or exhausted — flat day always beats blown-up day",
+      "Never increase size to recover losses — this is how accounts blow up",
+      "Never think you have it all figured out — the market is always evolving and will remind you",
+      "The strategy without discipline is just noise — the real edge is following the rules"
+    ]
+  },
+
+  "tools_and_platforms": {
+    "primary_order_flow": {
+      "name": "Bookmap",
+      "subscription": "Global Plus (lifetime preferred)",
+      "what_it_shows": "Heat map of all passive limit orders (orange lines) + all aggressive market orders (green/red balls) in real time",
+      "required_addons": [
+        "Session volume profile — shows where majority of volume has transacted this session",
+        "Chart volume profile — shows volume distribution on the current chart",
+        "Footprint chart add-on (5min interval, histogram, diagonal delta) — overlays footprint data directly on Bookmap",
+        "Absorption indicator (filter set to 250-500 contracts) — auto-highlights significant absorption events"
+      ],
+      "settings": {
+        "view": "Show bid, show ask, bars and numbers, split display",
+        "footprint_interval": "5 minutes",
+        "footprint_type": "Histogram, diagonal delta",
+        "absorption_filter": "250-500 fixed volume threshold",
+        "large_lot_tracker": "Optional, useful to spot large participant activity"
+      },
+      "bookmap_data": "Pay for Bookmap data subscription separately (~$30/month) — prop firm connections often do not supply level 2 data"
+    },
+
+    "secondary_platform": {
+      "name": "Quantower",
+      "use_case": "Copy trading multiple prop firms simultaneously, built-in footprint charts, DOM",
+      "footprint_settings": {
+        "imbalance_type": "Cluster",
+        "visualization": "Histogram",
+        "imbalance_ratio": 3,
+        "zone_counts": 3
       }
     },
-    "risk_reward": {
-      "minimum": "2:1 — distance to take profit must be DOUBLE distance to stop loss",
-      "rule": "If setup does not offer 2:1 R:R — DO NOT TAKE THE TRADE"
+
+    "xauusd_specific": {
+      "execution_broker": "Coinexx (MT4/5 broker)",
+      "execution_method": "WebhookTrade API",
+      "default_lot_size": 0.1,
+      "vwap_note": "For XAUUSD (24hr forex market), VWAP resets daily at midnight UTC. Use session VWAP for intraday bias.",
+      "bookmap_availability": "Bookmap works with forex brokers — confirm your Coinexx connection supports level 2 data or use a supplementary data feed"
     }
   },
-  "step4_five_minute_structure": {
-    "description": "Zoom into 5min after price taps key level. Wait for structure shift.",
-    "longs": {
-      "required": "Higher high AND higher low on 5min chart",
-      "then": "Look for order flow entry trigger at the higher low"
-    },
-    "shorts": {
-      "required": "Lower low AND lower high on 5min chart",
-      "then": "Look for order flow entry trigger at the lower high"
-    }
+
+  "trading_workflow": {
+    "pre_market_routine": [
+      "1. Open 4H chart — identify current market structure (bullish / bearish / balanced / unclear)",
+      "2. Open 30min chart — identify and mark all active supply and demand zones",
+      "3. Note where VWAP is currently sitting and whether price is above or below it",
+      "4. Write down your plan: 'If price goes to [zone], I look for [long/short]. My TP is [level], my SL is [level], my R:R is [X:1].'",
+      "5. If structure is unclear → write 'NO TRADE TODAY' and close charts"
+    ],
+    "during_session": [
+      "1. Wait for price to reach your pre-identified 30min supply or demand zone",
+      "2. Do NOT adjust zones in real time based on price movement — stick to your pre-market plan",
+      "3. When price enters zone, open 5min chart and watch Bookmap + footprint",
+      "4. Wait for 5min structure shift (higher high/low for longs, lower low/high for shorts)",
+      "5. Watch for exhaustion or absorption at the entry level",
+      "6. Wait for the aggressive follow-through signal",
+      "7. Confirm 2:1 R:R is still valid from the actual entry price",
+      "8. Execute market order — enter clean, no hesitation once all boxes checked",
+      "9. Set limit orders for stop loss and take profit immediately after entry"
+    ],
+    "post_trade": [
+      "1. Log the trade immediately: time, direction, entry, SL, TP, reason, emotional state",
+      "2. Did you follow every rule? Yes/No — be honest",
+      "3. After 1-2 trades (win or lose), step away from the screen",
+      "4. Do NOT check results obsessively — it affects next trade"
+    ],
+    "weekly_review": [
+      "1. Pull trade journal — review every trade from the week",
+      "2. Remove (in analysis) every trade where you broke a rule — what would your P&L look like?",
+      "3. Identify patterns: what setups are working? What is not?",
+      "4. Adjust only if you have at least 30 samples of data — not based on 1-2 trades",
+      "5. If red week: cut size in half for next week"
+    ],
+    "hours_per_day": "1-2 hours active trading",
+    "trades_per_day": "1-2 maximum",
+    "trading_days_needed_per_month": 5
   },
-  "step5_order_flow_entry": {
-    "description": "Use Bookmap or footprint chart on 5min to confirm entry.",
-    "concepts": {
-      "exhaustion": "Aggressive buyers or sellers getting smaller and smaller until they disappear",
-      "absorption": "Large passive order absorbs aggressive market orders with no follow-through"
-    },
-    "entry_long": {
-      "step1": "See seller exhaustion OR absorption at key level",
-      "step2": "Wait for aggressive buyer to fill a passive sell offer",
-      "step3": "See a bid printed ABOVE that fill",
-      "step4": "Confirm 2:1 R:R still valid",
-      "step5": "Press BUY"
-    },
-    "entry_short": {
-      "step1": "See buyer exhaustion OR absorption at key level",
-      "step2": "Wait for aggressive seller to fill a passive buy offer",
-      "step3": "See an offer printed BELOW that fill",
-      "step4": "Confirm 2:1 R:R still valid",
-      "step5": "Press SELL"
-    }
-  },
+
   "golden_rules": [
-    "RULE 1: If structure is unclear on 4H — DO NOT TRADE",
-    "RULE 2: Only trade OBVIOUS supply and demand levels — no maybes",
-    "RULE 3: Know your stop loss and take profit BEFORE entering",
-    "RULE 4: Stop loss goes where thesis is invalid — never based on dollar amount",
-    "RULE 5: Minimum 2:1 risk-to-reward on EVERY trade — no exceptions",
-    "RULE 6: Wait for 5min structure shift before looking for entry",
-    "RULE 7: Wait for order flow confirmation before pressing buy/sell",
-    "RULE 8: You only need 5 good trading days per month — quality over quantity",
-    "RULE 9: Be a hunter — patience and discipline make this strategy golden",
-    "RULE 10: Review and journal trades weekly"
+    "RULE 1: If 4H structure is unclear — DO NOT TRADE. Sit on hands and wait.",
+    "RULE 2: Only trade OBVIOUS supply and demand zones. No maybes. If unsure, skip it.",
+    "RULE 3: Know your stop loss and take profit BEFORE entering the trade.",
+    "RULE 4: Stop loss goes where your thesis is INVALID — never based on a dollar amount.",
+    "RULE 5: Minimum 2:1 R:R on EVERY trade — no exceptions. If you cannot get it, pass.",
+    "RULE 6: Wait for the 5min structure shift before looking for an order flow entry.",
+    "RULE 7: Wait for exhaustion or absorption THEN aggressive follow-through before pressing buy/sell.",
+    "RULE 8: NEVER short all-time highs unless playing a break-retest of a confirmed supply level.",
+    "RULE 9: After 3 losses or 5 trades in a day — shut the screen. The market will be there tomorrow.",
+    "RULE 10: Never increase position size after a string of losses. Stay at base size until consistency is proven.",
+    "RULE 11: After a red week — cut size in half immediately. Protect drawdown. Recalibrate.",
+    "RULE 12: Never set a dollar target for a session — it introduces bias into every trade decision.",
+    "RULE 13: Always have a written plan before the open. Never improvise in real time.",
+    "RULE 14: The strategy without discipline is noise. The real edge is following the rules every single day.",
+    "RULE 15: You only need 5 good trading days per month. Quality over quantity — always."
   ],
+
   "indicators": {
     "vwap": {
       "type": "VWAP",
       "source": "(High + Low + Close) / 3",
-      "purpose": "Primary take profit target"
+      "purpose": "Primary take profit reference and intraday bias indicator",
+      "rule": "Price above VWAP = bullish intraday bias. Price below VWAP = bearish intraday bias.",
+      "reset": "Resets daily at midnight UTC for XAUUSD"
     },
-    "order_flow_tool": {
-      "preferred": "Bookmap",
-      "alternatives": ["Flipper", "Chart", "DOM", "Footprint chart"],
-      "purpose": "Read aggressive vs passive order flow for entry confirmation"
+    "ema8": {
+      "type": "EMA",
+      "period": 8,
+      "purpose": "Secondary trend confirmation for bot's automated safety check",
+      "rule": "Price above EMA(8) and VWAP = bullish bias confirmed. Price below both = bearish bias confirmed."
+    },
+    "rsi3": {
+      "type": "RSI",
+      "period": 3,
+      "purpose": "Overbought/oversold confirmation for bot's automated safety check",
+      "long_condition": "RSI(3) below 30 in bullish market = pullback exhaustion, prime for bounce entry",
+      "short_condition": "RSI(3) above 70 in bearish market = rally exhaustion, prime for drop entry"
     }
   },
-  "trading_sessions": {
-    "trades_per_day": "1-2 maximum",
-    "hours_per_day": "1-2 hours",
-    "trading_days_needed_per_month": 5,
-    "philosophy": "Less is more — wait for A+ setups only"
+
+  "bot_safety_check": {
+    "description": "Automated pre-trade safety check run by bot.js before every execution. All conditions must pass.",
+    "long_conditions": [
+      "Price above VWAP (bullish intraday bias)",
+      "Price above EMA(8) (short-term trend aligned)",
+      "RSI(3) below 30 (pullback exhaustion — good entry timing)",
+      "Price within 1.5% of VWAP (not overextended)"
+    ],
+    "short_conditions": [
+      "Price below VWAP (bearish intraday bias)",
+      "Price below EMA(8) (short-term trend aligned)",
+      "RSI(3) above 70 (rally exhaustion — good entry timing)",
+      "Price within 1.5% of VWAP (not overextended)"
+    ],
+    "execution": "Orders sent to Coinexx via WebhookTrade API (0.1 lots default, paper trading mode ON)"
   }
 }

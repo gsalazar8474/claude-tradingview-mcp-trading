@@ -1,6 +1,5 @@
 import "dotenv/config";
 import { readFileSync, writeFileSync, existsSync, appendFileSync } from "fs";
-
 import express from "express";
 
 // ─── EXPRESS WEBHOOK SERVER ───────────────────────────────────────────────────
@@ -12,11 +11,31 @@ app.get("/", (req, res) => {
   res.send("Claude Trading Bot is running ✅");
 });
 
+// Parses TradingView alert payloads into a normalised signal object.
+// TV alert JSON typically looks like:
+//   { "action": "buy", "symbol": "XAUUSD", "close": "{{close}}", "time": "{{time}}" }
+function parseTradingViewAlert(body) {
+  if (!body || typeof body !== "object") return null;
+  const action = (body.action || body.signal || "").toLowerCase();
+  const side = action === "buy" || action === "long" ? "BUY"
+             : action === "sell" || action === "short" ? "SELL"
+             : null;
+  const rawSymbol = body.symbol || body.ticker || "";
+  // Strip exchange prefix (e.g. "OANDA:XAUUSD" → "XAUUSD")
+  const symbol = rawSymbol.includes(":") ? rawSymbol.split(":")[1] : rawSymbol || null;
+  const price = parseFloat(body.close || body.price || 0) || null;
+  return { side, symbol, price, raw: body };
+}
+
 app.post("/webhook", async (req, res) => {
+  const signal = parseTradingViewAlert(req.body);
   console.log("\n📡 Webhook received:", JSON.stringify(req.body));
+  if (signal?.side) {
+    console.log(`   ↳ TradingView signal: ${signal.side} ${signal.symbol || ""} @ ${signal.price || "market"}`);
+  }
   res.json({ status: "received", timestamp: new Date().toISOString() });
   try {
-    await run();
+    await run(signal);
   } catch (err) {
     console.error("Bot error from webhook:", err.message);
   }
@@ -67,7 +86,33 @@ function countTodaysTrades(log) {
   ).length;
 }
 
-// ─── MARKET DATA (XAUUSD via Yahoo Finance) ───────────────────────────────────
+// ─── MARKET DATA ──────────────────────────────────────────────────────────────
+
+// Fetches the live XAUUSD spot price via TradingView's public global scanner.
+// Returns null on failure so the caller can fall back to Yahoo Finance closes.
+async function fetchTradingViewPrice(tvSymbol = "FX:XAUUSD") {
+  try {
+    const res = await fetch("https://scanner.tradingview.com/global/scan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "User-Agent": "tradingview-mcp-server/0.6.1" },
+      body: JSON.stringify({
+        filter: [],
+        columns: ["close", "open", "high", "low"],
+        sort: { sortBy: "name", sortOrder: "asc" },
+        range: [0, 1],
+        options: { lang: "en" },
+        symbols: { query: { types: [] }, tickers: [tvSymbol] },
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const row = data?.data?.[0]?.d;
+    if (!row?.[0]) return null;
+    return { price: row[0], open: row[1], high: row[2], low: row[3] };
+  } catch {
+    return null;
+  }
+}
 
 async function fetchCandles(symbol) {
   if (symbol === "XAUUSD") {
@@ -260,13 +305,14 @@ function writeTradeCsv(logEntry) {
 
 // ─── MAIN BOT LOGIC ───────────────────────────────────────────────────────────
 
-async function run() {
+async function run(tvSignal = null) {
   initCsv();
 
   console.log("\n═══════════════════════════════════════════════════════════");
   console.log("  Claude Trading Bot — WebhookTrade + Coinexx Edition");
   console.log(`  ${new Date().toISOString()}`);
   console.log(`  Mode: ${CONFIG.paperTrading ? "📋 PAPER TRADING" : "🔴 LIVE TRADING"}`);
+  if (tvSignal?.side) console.log(`  Source: TradingView alert (${tvSignal.side})`);
   console.log("═══════════════════════════════════════════════════════════");
 
   const rules = JSON.parse(readFileSync("rules.json", "utf8"));
@@ -282,8 +328,18 @@ async function run() {
   console.log("\n── Fetching market data ────────────────────────────────\n");
   const candles = await fetchCandles(CONFIG.symbol);
   const closes = candles.map((c) => c.close);
-  const price = closes[closes.length - 1];
-  console.log(`  Current XAUUSD price: $${price.toFixed(2)}`);
+
+  // Prefer live TradingView price when available; fall back to Yahoo Finance last close.
+  const tvQuote = CONFIG.symbol === "XAUUSD" ? await fetchTradingViewPrice("FX:XAUUSD") : null;
+  // If TradingView alert carried a price, prefer that; then TV live quote; then candle close.
+  const price = (tvSignal?.price && tvSignal.price > 0)
+    ? tvSignal.price
+    : (tvQuote?.price ?? closes[closes.length - 1]);
+
+  const priceSource = (tvSignal?.price && tvSignal.price > 0) ? "TradingView alert"
+    : tvQuote ? "TradingView live"
+    : "Yahoo Finance";
+  console.log(`  Current XAUUSD price: $${price.toFixed(2)} (${priceSource})`);
 
   const ema8 = calcEMA(closes, 8);
   const vwap = calcVWAP(candles);
@@ -307,6 +363,8 @@ async function run() {
     symbol: CONFIG.symbol,
     timeframe: CONFIG.timeframe,
     price,
+    priceSource,
+    tvSignal: tvSignal ?? undefined,
     indicators: { ema8, vwap, rsi3 },
     conditions: results,
     allPass,
