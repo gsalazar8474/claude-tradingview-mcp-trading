@@ -62,16 +62,12 @@ bearish = not na(l1) and not na(l2) and not na(l3) and
 unclear = not bullish and not bearish
 
 // ── PLOT BIAS LABEL ────────────────────────────────────────────────────
-biasColor = bullish ? color.new(color.green, 0) :
-            bearish ? color.new(color.red,   0) :
-            color.new(color.gray, 0)
+biasColor = bullish ? color.new(color.green, 0) : bearish ? color.new(color.red, 0) : color.new(color.gray, 0)
 
 biasText  = bullish ? "BULLISH" : bearish ? "BEARISH" : "UNCLEAR"
 
 // Background tint
-bgcolor(bullish ? color.new(color.green, 92) :
-        bearish ? color.new(color.red,   92) : na,
-        title="Structure Background")
+bgcolor(bullish ? color.new(color.green, 92) : bearish ? color.new(color.red, 92) : na, title="Structure Background")
 
 // Mark confirmed pivot highs/lows
 plotshape(not na(pivotHigh), style=shape.triangledown, location=location.abovebar,
