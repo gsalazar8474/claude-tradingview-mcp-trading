@@ -1,51 +1,73 @@
 //@version=5
 // Elder Santis - 5min Structure Shift Alert
-// BULLISH SHIFT = higher high + higher low  -> look for long entry trigger
-// BEARISH SHIFT = lower low  + lower high   -> look for short entry trigger
+// Detects genuine swing structure shifts on the 5min chart:
+//   BULLISH SHIFT = confirmed swing HIGH above prior swing high
+//                   AND confirmed swing LOW above prior swing low (HH + HL)
+//   BEARISH SHIFT = confirmed swing LOW below prior swing low
+//                   AND confirmed swing HIGH below prior swing high (LL + LH)
+//
+// A pivot is only confirmed after pivotLen bars have closed on BOTH sides,
+// so with pivotLen=5 each swing point requires 5 bars of follow-through
+// before it is accepted — this eliminates noise candles entirely.
 //
 // Chart timeframe : 5min  (OANDA:XAUUSD or FX:XAUUSD)
 // Webhook URL     : https://claude-tradingview-mcp-trading-production-f418.up.railway.app/webhook
 // Message BULLISH : {"action":"buy","signal":"5min_structure_shift","symbol":"{{ticker}}","close":"{{close}}","time":"{{timenow}}"}
 // Message BEARISH : {"action":"sell","signal":"5min_structure_shift","symbol":"{{ticker}}","close":"{{close}}","time":"{{timenow}}"}
 
-indicator("Elder Santis - 5min Structure Shift", overlay=true, max_bars_back=300)
+indicator("Elder Santis - 5min Structure Shift", overlay=true, max_bars_back=500)
 
-pivotLen   = input.int(3, "Pivot Lookback (bars each side)", minval=2, maxval=8)
-showLabels = input.bool(true, "Show shift labels on chart")
-showBg     = input.bool(true, "Show background colour on shift")
+pivotLen   = input.int(5, "Pivot Lookback (bars each side)", minval=3, maxval=10, tooltip="5 = 25 min each side. Higher = fewer but more significant swings.")
+showLabels = input.bool(true, "Show labels on structure shifts")
+showPivots = input.bool(true, "Show swing high/low markers")
 
-pivotHigh = ta.pivothigh(high, pivotLen, pivotLen)
-pivotLow  = ta.pivotlow(low, pivotLen, pivotLen)
+// Confirmed swing points — only accepted after pivotLen bars close on both sides
+swingHigh = ta.pivothigh(high, pivotLen, pivotLen)
+swingLow  = ta.pivotlow(low,  pivotLen, pivotLen)
 
-var float prevHigh = na
-var float lastHigh = na
-var float prevLow  = na
-var float lastLow  = na
+// Track the two most recent confirmed swing highs
+var float prevSH = na
+var float lastSH = na
 
-if not na(pivotHigh)
-    prevHigh := lastHigh
-    lastHigh := pivotHigh
+// Track the two most recent confirmed swing lows
+var float prevSL = na
+var float lastSL = na
 
-if not na(pivotLow)
-    prevLow := lastLow
-    lastLow  := pivotLow
+if not na(swingHigh)
+    prevSH := lastSH
+    lastSH := swingHigh
 
-allDefined   = not na(prevHigh) and not na(lastHigh) and not na(prevLow) and not na(lastLow)
-bullishShift = allDefined and lastHigh > prevHigh and lastLow > prevLow
-bearishShift = allDefined and lastLow < prevLow and lastHigh < prevHigh
-bullishNew   = bullishShift and not bullishShift[1]
-bearishNew   = bearishShift and not bearishShift[1]
+if not na(swingLow)
+    prevSL := lastSL
+    lastSL := swingLow
 
-bgcolor(showBg and bullishShift ? color.new(color.green, 88) : showBg and bearishShift ? color.new(color.red, 88) : na, title="Shift Background")
+// All four reference points must be confirmed before any signal is possible
+allReady = not na(prevSH) and not na(lastSH) and not na(prevSL) and not na(lastSL)
 
-plotshape(not na(pivotHigh), style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 30), size=size.tiny, title="5m Pivot High")
-plotshape(not na(pivotLow), style=shape.triangleup, location=location.belowbar, color=color.new(color.green, 30), size=size.tiny, title="5m Pivot Low")
+// Bullish shift: most recent swing high is ABOVE the prior one (HH)
+//               AND most recent swing low is ABOVE the prior one (HL)
+bullishShift = allReady and lastSH > prevSH and lastSL > prevSL
 
+// Bearish shift: most recent swing low is BELOW the prior one (LL)
+//               AND most recent swing high is BELOW the prior one (LH)
+bearishShift = allReady and lastSL < prevSL and lastSH < prevSH
+
+// Edge-trigger: only fire on the single bar where the condition first turns true
+// This prevents the label and alert from repeating on every subsequent bar
+bullishNew = bullishShift and not bullishShift[1]
+bearishNew = bearishShift and not bearishShift[1]
+
+// Swing high/low markers (small, unobtrusive)
+plotshape(showPivots and not na(swingHigh), style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 40), size=size.tiny, title="Swing High")
+plotshape(showPivots and not na(swingLow),  style=shape.triangleup,   location=location.belowbar, color=color.new(color.green, 40), size=size.tiny, title="Swing Low")
+
+// Labels appear only on the one bar where the shift is first confirmed
 if showLabels and bullishNew
     label.new(bar_index, low * 0.9995, "BULLISH\nHH + HL", color=color.new(color.green, 10), textcolor=color.white, style=label.style_label_up, size=size.small)
 
 if showLabels and bearishNew
     label.new(bar_index, high * 1.0005, "BEARISH\nLL + LH", color=color.new(color.red, 10), textcolor=color.white, style=label.style_label_down, size=size.small)
 
+// Alerts fire once per shift — not continuously
 alertcondition(bullishNew, "5min Bullish Shift", "5min structure shifted BULLISH (HH + HL). Check Bookmap for exhaustion/absorption. Look for long entry trigger.")
 alertcondition(bearishNew, "5min Bearish Shift", "5min structure shifted BEARISH (LL + LH). Check Bookmap for exhaustion/absorption. Look for short entry trigger.")
