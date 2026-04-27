@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { readFileSync, writeFileSync, existsSync, appendFileSync } from "fs";
+
 import express from "express";
 
 // ─── EXPRESS WEBHOOK SERVER ───────────────────────────────────────────────────
@@ -33,7 +34,7 @@ app.listen(PORT, () => {
 const CONFIG = {
   symbol: process.env.SYMBOL || "XAUUSD",
   timeframe: process.env.TIMEFRAME || "4H",
-  portfolioValue: parseFloat(process.env.PORTFOLIO_VALUE_USD || "1000"),
+  portfolioValue: parseFloat(process.env.PORTFOLIO_VALUE_USD || "10000"),
   maxTradeSizeUSD: parseFloat(process.env.MAX_TRADE_SIZE_USD || "100"),
   maxTradesPerDay: parseInt(process.env.MAX_TRADES_PER_DAY || "2"),
   paperTrading: process.env.PAPER_TRADING !== "false",
