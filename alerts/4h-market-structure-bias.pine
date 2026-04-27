@@ -1,40 +1,28 @@
 //@version=5
 // Elder Santis — 4H Market Structure Bias Alert
-// Fires when the 4H chart confirms a structural bias change:
-//   BULLISH = 3 higher highs + 2 higher lows
-//   BEARISH = 3 lower lows  + 2 lower highs
-//   UNCLEAR = structure does not fit either — no alert, no trade
+// BULLISH = 3 higher highs + 2 higher lows
+// BEARISH = 3 lower lows  + 2 lower highs
+// UNCLEAR = no trade
 //
-// ── SETUP ──────────────────────────────────────────────────────────────
 // Chart timeframe : 4H  (OANDA:XAUUSD or FX:XAUUSD)
-// Alert condition : "4H Bias — BULLISH" or "4H Bias — BEARISH"
 // Webhook URL     : https://claude-tradingview-mcp-trading-production-f418.up.railway.app/webhook
-// Message (BULLISH):
-//   {"action":"bias","bias":"bullish","symbol":"{{ticker}}","close":"{{close}}","time":"{{timenow}}"}
-// Message (BEARISH):
-//   {"action":"bias","bias":"bearish","symbol":"{{ticker}}","close":"{{close}}","time":"{{timenow}}"}
-// ───────────────────────────────────────────────────────────────────────
+// Message BULLISH : {"action":"bias","bias":"bullish","symbol":"{{ticker}}","close":"{{close}}","time":"{{timenow}}"}
+// Message BEARISH : {"action":"bias","bias":"bearish","symbol":"{{ticker}}","close":"{{close}}","time":"{{timenow}}"}
 
-indicator("Elder Santis — 4H Market Structure Bias", overlay=true, max_bars_back=500)
+indicator("Elder Santis - 4H Market Structure Bias", overlay=true, max_bars_back=500)
 
-// ── INPUTS ─────────────────────────────────────────────────────────────
-pivotLen = input.int(5, "Pivot Lookback (bars each side)", minval=2, maxval=20,
-     tooltip="How many bars either side of a candle must be lower/higher for it to qualify as a pivot. 5 = default for 4H.")
+pivotLen = input.int(5, "Pivot Lookback (bars each side)", minval=2, maxval=20)
 
-// ── PIVOT DETECTION ────────────────────────────────────────────────────
-// ta.pivothigh / pivotlow return the value at that bar if it is a confirmed pivot,
-// else na. Confirmation happens 'pivotLen' bars AFTER the pivot forms.
 pivotHigh = ta.pivothigh(high, pivotLen, pivotLen)
-pivotLow  = ta.pivotlow (low,  pivotLen, pivotLen)
+pivotLow  = ta.pivotlow(low, pivotLen, pivotLen)
 
-// ── STORE LAST 3 CONFIRMED PIVOT HIGHS AND LOWS ────────────────────────
-var float h1 = na  // oldest of three highs
+var float h1 = na
 var float h2 = na
-var float h3 = na  // most recent high
+var float h3 = na
 
-var float l1 = na  // oldest of three lows
+var float l1 = na
 var float l2 = na
-var float l3 = na  // most recent low
+var float l3 = na
 
 if not na(pivotHigh)
     h1 := h2
@@ -46,50 +34,25 @@ if not na(pivotLow)
     l2 := l3
     l3 := pivotLow
 
-// ── STRUCTURE CLASSIFICATION ───────────────────────────────────────────
-// Bullish: 3 consecutive higher highs AND 2 consecutive higher lows
-bullish = not na(h1) and not na(h2) and not na(h3) and
-          not na(l2) and not na(l3) and
-          h3 > h2 and h2 > h1 and
-          l3 > l2
-
-// Bearish: 3 consecutive lower lows AND 2 consecutive lower highs
-bearish = not na(l1) and not na(l2) and not na(l3) and
-          not na(h2) and not na(h3) and
-          l3 < l2 and l2 < l1 and
-          h3 < h2
-
+bullish = not na(h1) and not na(h2) and not na(h3) and not na(l2) and not na(l3) and h3 > h2 and h2 > h1 and l3 > l2
+bearish = not na(l1) and not na(l2) and not na(l3) and not na(h2) and not na(h3) and l3 < l2 and l2 < l1 and h3 < h2
 unclear = not bullish and not bearish
 
-// ── PLOT BIAS LABEL ────────────────────────────────────────────────────
 biasColor = bullish ? color.new(color.green, 0) : bearish ? color.new(color.red, 0) : color.new(color.gray, 0)
-
 biasText  = bullish ? "BULLISH" : bearish ? "BEARISH" : "UNCLEAR"
 
-// Background tint
 bgcolor(bullish ? color.new(color.green, 92) : bearish ? color.new(color.red, 92) : na, title="Structure Background")
 
-// Mark confirmed pivot highs/lows
-plotshape(not na(pivotHigh), style=shape.triangledown, location=location.abovebar,
-          color=color.new(color.red, 20), size=size.tiny, title="Pivot High")
-plotshape(not na(pivotLow),  style=shape.triangleup,   location=location.belowbar,
-          color=color.new(color.green, 20), size=size.tiny, title="Pivot Low")
+plotshape(not na(pivotHigh), style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 20), size=size.tiny, title="Pivot High")
+plotshape(not na(pivotLow), style=shape.triangleup, location=location.belowbar, color=color.new(color.green, 20), size=size.tiny, title="Pivot Low")
 
-// Bias label (refreshes each bar)
 if barstate.islast
-    label.new(bar_index, high * 1.001, biasText,
-              color=biasColor, textcolor=color.white,
-              style=label.style_label_down, size=size.normal)
+    label.new(bar_index, high * 1.001, biasText, color=biasColor, textcolor=color.white, style=label.style_label_down, size=size.normal)
 
-// ── ALERT CONDITIONS ───────────────────────────────────────────────────
-// Fires ONCE when structure changes — not on every bullish bar
 bullishTurn = bullish and not bullish[1]
 bearishTurn = bearish and not bearish[1]
 unclearTurn = unclear and not unclear[1]
 
-alertcondition(bullishTurn, "4H Bias — BULLISH",
-    "4H structure is now BULLISH (3HH + 2HL). Look for longs off 30min demand zones.")
-alertcondition(bearishTurn, "4H Bias — BEARISH",
-    "4H structure is now BEARISH (3LL + 2LH). Look for shorts off 30min supply zones.")
-alertcondition(unclearTurn, "4H Bias — UNCLEAR",
-    "4H structure is now UNCLEAR. Do not trade until structure is confirmed.")
+alertcondition(bullishTurn, "4H Bias - BULLISH", "4H structure is now BULLISH (3HH + 2HL). Look for longs off 30min demand zones.")
+alertcondition(bearishTurn, "4H Bias - BEARISH", "4H structure is now BEARISH (3LL + 2LH). Look for shorts off 30min supply zones.")
+alertcondition(unclearTurn, "4H Bias - UNCLEAR", "4H structure is now UNCLEAR. Do not trade until structure is confirmed.")
