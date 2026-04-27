@@ -1,0 +1,154 @@
+//@version=5
+// Elder Santis - Supply & Demand Zones
+//
+// Zones are sourced from "Zone Source Timeframe" (default 30min) and remain
+// visible and consistent regardless of which chart timeframe you are viewing.
+// Switch freely from 4H -> 2H -> 1H -> 30min -> 5min — the same zones appear.
+//
+// SUPPLY ZONE (red box):
+//   Trigger  : big fast impulsive move DOWN on the zone source timeframe
+//   Top      : highest wick across the 2 consolidation candles before the move
+//   Bottom   : higher of the two body-bottoms (where bodies connect = orders filled)
+//
+// DEMAND ZONE (green box):
+//   Trigger  : big fast impulsive move UP on the zone source timeframe
+//   Bottom   : lowest wick across the 2 consolidation candles before the move
+//   Top      : lower of the two body-tops (where bodies connect = orders filled)
+//
+// ENTRY GUIDES (when Show Entry Markers is on):
+//   Demand entry: price enters green box -> wait for 2nd HIGHER LOW near the zone
+//                 -> blue "ENTRY BUY" label marks the second higher low
+//   Supply entry: price enters red box   -> wait for 2nd LOWER HIGH near the zone
+//                 -> orange "ENTRY SELL" label marks the second lower high
+//
+// Zones extend right until price closes inside them (mitigation).
+
+indicator("Elder Santis - Supply & Demand Zones", overlay=true, max_bars_back=500, max_boxes_count=50, max_labels_count=50)
+
+zoneTF    = input.timeframe("30", "Zone Source Timeframe")
+atrLen    = input.int(14, "ATR Length", minval=1, maxval=50)
+minMult   = input.float(2.5, "Min Move Size (x ATR)", minval=0.5, maxval=10.0, step=0.25)
+maxZones  = input.int(5, "Max active zones per side", minval=1, maxval=20)
+showMit   = input.bool(false, "Show mitigated zones (greyed out)")
+showEntry = input.bool(true, "Show entry guide markers (2nd HL / 2nd LH)")
+entryPLen = input.int(3, "Entry pivot lookback (chart bars)", minval=2, maxval=8)
+supplyCol = input.color(color.new(color.red, 80), "Supply zone fill")
+demandCol = input.color(color.new(color.green, 80), "Demand zone fill")
+mitCol    = input.color(color.new(color.gray, 90), "Mitigated zone fill")
+
+// Zone-TF bars: [1] = just-closed bar (the big move), [2] and [3] = the base candles before it
+[htf_o1, htf_h1, htf_l1, htf_c1, htf_o2, htf_h2, htf_l2, htf_c2] = request.security(syminfo.tickerid, zoneTF, [open[1], high[1], low[1], close[1], open[2], high[2], low[2], close[2]], barmerge.gaps_off, barmerge.lookahead_off)
+[htf_o3, htf_h3, htf_l3, htf_c3, htf_atr, htf_bidx] = request.security(syminfo.tickerid, zoneTF, [open[3], high[3], low[3], close[3], ta.atr(atrLen)[1], bar_index], barmerge.gaps_off, barmerge.lookahead_off)
+
+// Fire zone logic once at the open of each new zone-TF bar (when the previous one just confirmed)
+is_new_htf = ta.change(htf_bidx) > 0
+
+// Big move on the just-closed zone-TF bar
+bearBody = htf_o1 > htf_c1 ? htf_o1 - htf_c1 : 0.0
+bullBody = htf_c1 > htf_o1 ? htf_c1 - htf_o1 : 0.0
+htfRange = htf_h1 - htf_l1
+isBigBear = is_new_htf and not na(htf_atr) and htfRange > 0.0 and bearBody >= minMult * htf_atr and bearBody / htfRange >= 0.5
+isBigBull = is_new_htf and not na(htf_atr) and htfRange > 0.0 and bullBody >= minMult * htf_atr and bullBody / htfRange >= 0.5
+
+// Zone price levels
+// Supply: top wick of base candles, bottom where bodies connect (higher of body-bottoms)
+// Demand: bottom wick of base candles, top where bodies connect (lower of body-tops)
+supplyTop   = math.max(htf_h2, htf_h3)
+supplyBot   = math.max(math.min(htf_o2, htf_c2), math.min(htf_o3, htf_c3))
+demandBot   = math.min(htf_l2, htf_l3)
+demandTop   = math.min(math.max(htf_o2, htf_c2), math.max(htf_o3, htf_c3))
+supplyValid = not na(htf_h2) and not na(htf_h3) and not na(htf_o2) and not na(htf_c2) and not na(htf_o3) and not na(htf_c3) and supplyTop > supplyBot
+demandValid = not na(htf_l2) and not na(htf_l3) and not na(htf_o2) and not na(htf_c2) and not na(htf_o3) and not na(htf_c3) and demandTop > demandBot
+
+// Zone state arrays
+var box[]   supplyBoxes     = array.new_box()
+var bool[]  supplyHit       = array.new_bool()
+var float[] supplyFirstHi   = array.new_float()
+var bool[]  supplyEntryDone = array.new_bool()
+var box[]   demandBoxes     = array.new_box()
+var bool[]  demandHit       = array.new_bool()
+var float[] demandFirstLo   = array.new_float()
+var bool[]  demandEntryDone = array.new_bool()
+
+// Draw supply zone when big bearish bar just confirmed
+if isBigBear and supplyValid
+    newBox = box.new(bar_index, supplyTop, bar_index + 1, supplyBot, border_color=color.new(color.red, 20), bgcolor=supplyCol, border_width=1, extend=extend.right)
+    array.push(supplyBoxes, newBox)
+    array.push(supplyHit, false)
+    array.push(supplyFirstHi, na)
+    array.push(supplyEntryDone, false)
+    if array.size(supplyBoxes) > maxZones
+        if not array.get(supplyHit, 0)
+            box.delete(array.get(supplyBoxes, 0))
+        array.shift(supplyBoxes)
+        array.shift(supplyHit)
+        array.shift(supplyFirstHi)
+        array.shift(supplyEntryDone)
+
+// Draw demand zone when big bullish bar just confirmed
+if isBigBull and demandValid
+    newBox = box.new(bar_index, demandTop, bar_index + 1, demandBot, border_color=color.new(color.green, 20), bgcolor=demandCol, border_width=1, extend=extend.right)
+    array.push(demandBoxes, newBox)
+    array.push(demandHit, false)
+    array.push(demandFirstLo, na)
+    array.push(demandEntryDone, false)
+    if array.size(demandBoxes) > maxZones
+        if not array.get(demandHit, 0)
+            box.delete(array.get(demandBoxes, 0))
+        array.shift(demandBoxes)
+        array.shift(demandHit)
+        array.shift(demandFirstLo)
+        array.shift(demandEntryDone)
+
+// Current chart-TF pivots and ATR for entry detection
+currPH  = ta.pivothigh(high, entryPLen, entryPLen)
+currPL  = ta.pivotlow(low, entryPLen, entryPLen)
+currAtr = ta.atr(atrLen)
+
+// Supply zones: mitigation check then entry guide (2nd lower high = sell entry)
+for i = 0 to array.size(supplyBoxes) - 1
+    if not array.get(supplyHit, i)
+        b    = array.get(supplyBoxes, i)
+        zTop = box.get_top(b)
+        zBot = box.get_bottom(b)
+        if close <= zTop and close >= zBot
+            array.set(supplyHit, i, true)
+            box.set_extend(b, extend.none)
+            box.set_right(b, bar_index)
+            if showMit
+                box.set_bgcolor(b, mitCol)
+                box.set_border_color(b, color.new(color.gray, 60))
+            else
+                box.delete(b)
+        else if showEntry and not array.get(supplyEntryDone, i) and not na(currPH)
+            pivH = currPH
+            if pivH <= zTop + 0.5 * currAtr and pivH >= zBot - 0.5 * currAtr
+                if na(array.get(supplyFirstHi, i))
+                    array.set(supplyFirstHi, i, pivH)
+                else if pivH < array.get(supplyFirstHi, i)
+                    array.set(supplyEntryDone, i, true)
+                    label.new(bar_index - entryPLen, pivH, "ENTRY\nSELL", color=color.new(color.orange, 10), textcolor=color.white, style=label.style_label_down, size=size.small)
+
+// Demand zones: mitigation check then entry guide (2nd higher low = buy entry)
+for i = 0 to array.size(demandBoxes) - 1
+    if not array.get(demandHit, i)
+        b    = array.get(demandBoxes, i)
+        zTop = box.get_top(b)
+        zBot = box.get_bottom(b)
+        if close >= zBot and close <= zTop
+            array.set(demandHit, i, true)
+            box.set_extend(b, extend.none)
+            box.set_right(b, bar_index)
+            if showMit
+                box.set_bgcolor(b, mitCol)
+                box.set_border_color(b, color.new(color.gray, 60))
+            else
+                box.delete(b)
+        else if showEntry and not array.get(demandEntryDone, i) and not na(currPL)
+            pivL = currPL
+            if pivL >= zBot - 0.5 * currAtr and pivL <= zTop + 0.5 * currAtr
+                if na(array.get(demandFirstLo, i))
+                    array.set(demandFirstLo, i, pivL)
+                else if pivL > array.get(demandFirstLo, i)
+                    array.set(demandEntryDone, i, true)
+                    label.new(bar_index - entryPLen, pivL, "ENTRY\nBUY", color=color.new(color.blue, 10), textcolor=color.white, style=label.style_label_up, size=size.small)
