@@ -1,47 +1,24 @@
 //@version=5
-// Elder Santis — 5min Structure Shift Alert
-// Fires when price enters a 30min supply/demand zone AND the 5min chart
-// confirms a structure shift in the trade direction:
-//   BULLISH SHIFT = higher high + higher low  → look for long entry trigger
-//   BEARISH SHIFT = lower low  + lower high   → look for short entry trigger
+// Elder Santis - 5min Structure Shift Alert
+// BULLISH SHIFT = higher high + higher low  -> look for long entry trigger
+// BEARISH SHIFT = lower low  + lower high   -> look for short entry trigger
 //
-// How it fits the strategy:
-//   Step 1 (4H bias)  → handled by the other script
-//   Step 2 (30min zone) → YOU mark those zones manually in TradingView
-//   Step 3 (5min shift) → THIS script fires when the shift is confirmed
-//   Step 4 (order flow) → YOU confirm exhaustion/absorption on Bookmap
-//   Step 5 (execution)  → bot.js places the order via WebhookTrade/Coinexx
-//
-// ── SETUP ──────────────────────────────────────────────────────────────
 // Chart timeframe : 5min  (OANDA:XAUUSD or FX:XAUUSD)
-// Alert condition : "5min Bullish Shift" or "5min Bearish Shift"
 // Webhook URL     : https://claude-tradingview-mcp-trading-production-f418.up.railway.app/webhook
-// Message (BULLISH shift — ready for long):
-//   {"action":"buy","signal":"5min_structure_shift","symbol":"{{ticker}}","close":"{{close}}","time":"{{timenow}}"}
-// Message (BEARISH shift — ready for short):
-//   {"action":"sell","signal":"5min_structure_shift","symbol":"{{ticker}}","close":"{{close}}","time":"{{timenow}}"}
-// ───────────────────────────────────────────────────────────────────────
+// Message BULLISH : {"action":"buy","signal":"5min_structure_shift","symbol":"{{ticker}}","close":"{{close}}","time":"{{timenow}}"}
+// Message BEARISH : {"action":"sell","signal":"5min_structure_shift","symbol":"{{ticker}}","close":"{{close}}","time":"{{timenow}}"}
 
-indicator("Elder Santis — 5min Structure Shift", overlay=true, max_bars_back=300)
+indicator("Elder Santis - 5min Structure Shift", overlay=true, max_bars_back=300)
 
-// ── INPUTS ─────────────────────────────────────────────────────────────
-pivotLen = input.int(3, "Pivot Lookback (bars each side)", minval=2, maxval=8,
-     tooltip="3 bars = 15 minutes each side. Keeps pivots responsive on the 5min chart.")
+pivotLen   = input.int(3, "Pivot Lookback (bars each side)", minval=2, maxval=8)
+showLabels = input.bool(true, "Show shift labels on chart")
+showBg     = input.bool(true, "Show background colour on shift")
 
-showLabels  = input.bool(true,  "Show shift labels on chart")
-showBg      = input.bool(true,  "Show background colour on shift")
-alertOnce   = input.bool(false, "Only alert on first shift of new run",
-     tooltip="If true, suppresses repeated alerts while the same shift is active.")
-
-// ── PIVOT DETECTION ────────────────────────────────────────────────────
 pivotHigh = ta.pivothigh(high, pivotLen, pivotLen)
-pivotLow  = ta.pivotlow (low,  pivotLen, pivotLen)
+pivotLow  = ta.pivotlow(low, pivotLen, pivotLen)
 
-// ── TRACK LAST TWO CONFIRMED PIVOT HIGHS AND LOWS ──────────────────────
-// We only need two of each to establish HH+HL or LL+LH
 var float prevHigh = na
 var float lastHigh = na
-
 var float prevLow  = na
 var float lastLow  = na
 
@@ -53,51 +30,22 @@ if not na(pivotLow)
     prevLow := lastLow
     lastLow  := pivotLow
 
-// ── STRUCTURE SHIFT DETECTION ──────────────────────────────────────────
-// All four reference points must exist before a valid signal
-allDefined = not na(prevHigh) and not na(lastHigh) and not na(prevLow) and not na(lastLow)
-
-// Bullish shift: higher high AND higher low
+allDefined   = not na(prevHigh) and not na(lastHigh) and not na(prevLow) and not na(lastLow)
 bullishShift = allDefined and lastHigh > prevHigh and lastLow > prevLow
-
-// Bearish shift: lower low AND lower high
 bearishShift = allDefined and lastLow < prevLow and lastHigh < prevHigh
+bullishNew   = bullishShift and not bullishShift[1]
+bearishNew   = bearishShift and not bearishShift[1]
 
-// Rising edge — fires only on the bar where the shift first becomes true
-bullishNew = bullishShift and not bullishShift[1]
-bearishNew = bearishShift and not bearishShift[1]
+bgcolor(showBg and bullishShift ? color.new(color.green, 88) : showBg and bearishShift ? color.new(color.red, 88) : na, title="Shift Background")
 
-// ── VISUALS ────────────────────────────────────────────────────────────
-// Background colour while shift is active
-bgcolor(showBg and bullishShift ? color.new(color.green, 88) :
-        showBg and bearishShift ? color.new(color.red,   88) : na,
-        title="Shift Background")
+plotshape(not na(pivotHigh), style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 30), size=size.tiny, title="5m Pivot High")
+plotshape(not na(pivotLow), style=shape.triangleup, location=location.belowbar, color=color.new(color.green, 30), size=size.tiny, title="5m Pivot Low")
 
-// Small pivot markers
-plotshape(not na(pivotHigh), style=shape.triangledown, location=location.abovebar,
-          color=color.new(color.red, 30), size=size.tiny, title="5m Pivot High")
-plotshape(not na(pivotLow),  style=shape.triangleup,   location=location.belowbar,
-          color=color.new(color.green, 30), size=size.tiny, title="5m Pivot Low")
-
-// Shift labels on the bar the shift is confirmed
 if showLabels and bullishNew
-    label.new(bar_index, low * 0.9995,
-              "▲ BULLISH\nHH + HL",
-              color=color.new(color.green, 10),
-              textcolor=color.white,
-              style=label.style_label_up,
-              size=size.small)
+    label.new(bar_index, low * 0.9995, "BULLISH\nHH + HL", color=color.new(color.green, 10), textcolor=color.white, style=label.style_label_up, size=size.small)
 
 if showLabels and bearishNew
-    label.new(bar_index, high * 1.0005,
-              "▼ BEARISH\nLL + LH",
-              color=color.new(color.red, 10),
-              textcolor=color.white,
-              style=label.style_label_down,
-              size=size.small)
+    label.new(bar_index, high * 1.0005, "BEARISH\nLL + LH", color=color.new(color.red, 10), textcolor=color.white, style=label.style_label_down, size=size.small)
 
-// ── ALERT CONDITIONS ───────────────────────────────────────────────────
-alertcondition(bullishNew, "5min Bullish Shift",
-    "5min structure shifted BULLISH (HH + HL). Check Bookmap for exhaustion/absorption. Look for long entry trigger.")
-alertcondition(bearishNew, "5min Bearish Shift",
-    "5min structure shifted BEARISH (LL + LH). Check Bookmap for exhaustion/absorption. Look for short entry trigger.")
+alertcondition(bullishNew, "5min Bullish Shift", "5min structure shifted BULLISH (HH + HL). Check Bookmap for exhaustion/absorption. Look for long entry trigger.")
+alertcondition(bearishNew, "5min Bearish Shift", "5min structure shifted BEARISH (LL + LH). Check Bookmap for exhaustion/absorption. Look for short entry trigger.")
