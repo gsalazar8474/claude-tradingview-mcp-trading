@@ -27,11 +27,11 @@ baseLook   = input.int(5,     "Max base candles to scan",     minval=1,  maxval=
 maxZones   = input.int(20,    "Max zones per side",           minval=1,  maxval=50)
 showMit    = input.bool(false, "Show mitigated zones (greyed out)")
 showLabel  = input.bool(true,  "Show zone label (S / D)")
-supplyFill   = input.color(color.new(color.red,   75), "Supply fill")
-demandFill   = input.color(color.new(color.green, 75), "Demand fill")
-mitFill      = input.color(color.new(color.gray,  88), "Mitigated fill")
-supplyBorder = input.color(color.new(color.red,    0), "Supply border")
-demandBorder = input.color(color.new(color.green,  0), "Demand border")
+supplyFill   = input.color(color.new(#8B0000, 70), "Supply fill")
+demandFill   = input.color(color.new(#006400, 70), "Demand fill")
+mitFill      = input.color(color.new(color.gray, 88), "Mitigated fill")
+supplyBorder = input.color(color.new(#8B0000,  0), "Supply border")
+demandBorder = input.color(color.new(#006400,  0), "Demand border")
 
 // ── ZONE DETECTION (runs inside request.security in the source TF) ────────────
 // bar[1] = last confirmed source-TF bar → checked for the explosive move
