@@ -39,54 +39,54 @@ demandBorder = input.color(color.new(#004400, 20), "Demand border")
 // that does not drift when the chart is scrolled or zoomed.
 
 f_supplyZone(mult, bRatio, nMax, bLook, al) =>
-    a    = ta.atr(al)[1]
-    b1   = open[1] - close[1]
-    r1   = high[1] - low[1]
-    s1   = not na(a) and open[1] > close[1] and r1 > 0.0 and b1 >= mult * a and b1 / r1 >= bRatio
-    b3   = (open[1] > close[1] ? open[1] - close[1] : 0.0) + (open[2] > close[2] ? open[2] - close[2] : 0.0) + (open[3] > close[3] ? open[3] - close[3] : 0.0)
-    s3   = open[1] > close[1] and open[2] > close[2] and open[3] > close[3] and b3 >= mult * nz(a, 1.0)
-    bs   = s3 ? 4 : 2
+    a       = ta.atr(al)[1]
+    b1      = open[1] - close[1]
+    r1      = high[1] - low[1]
+    s1      = not na(a) and open[1] > close[1] and r1 > 0.0 and b1 >= mult * a and b1 / r1 >= bRatio
+    b3      = (open[1] > close[1] ? open[1] - close[1] : 0.0) + (open[2] > close[2] ? open[2] - close[2] : 0.0) + (open[3] > close[3] ? open[3] - close[3] : 0.0)
+    s3      = open[1] > close[1] and open[2] > close[2] and open[3] > close[3] and b3 >= mult * nz(a, 1.0)
+    bs      = s3 ? 4 : 2
     zTop    = float(na)
     zBot    = float(na)
     leftOff = bs
-    if (s1 or s3) and not na(open[bs]) and not na(close[bs])
-        if math.abs(open[bs] - close[bs]) <= nMax * a
-            zTop := high[bs]
-            zBot := math.min(open[bs], close[bs])
-            for k = bs + 1 to bs + bLook
-                if na(open[k]) or na(close[k]) or na(high[k])
-                    break
-                if math.abs(open[k] - close[k]) > nMax * a
-                    break
-                zTop    := math.max(zTop, high[k])
-                zBot    := math.min(zBot, math.min(open[k], close[k]))
-                leftOff := k
+    baseOk  = (s1 or s3) and not na(open[bs]) and not na(close[bs]) and math.abs(open[bs] - close[bs]) <= nMax * a
+    if baseOk
+        zTop := high[bs]
+        zBot := math.min(open[bs], close[bs])
+        for k = bs + 1 to bs + bLook
+            if na(open[k]) or na(close[k]) or na(high[k])
+                break
+            if math.abs(open[k] - close[k]) > nMax * a
+                break
+            zTop    := math.max(zTop, high[k])
+            zBot    := math.min(zBot, math.min(open[k], close[k]))
+            leftOff := k
     valid = not na(zTop) and not na(zBot) and zTop > zBot
     [valid, zTop, zBot, valid ? leftOff : 0]
 
 f_demandZone(mult, bRatio, nMax, bLook, al) =>
-    a    = ta.atr(al)[1]
-    b1   = close[1] - open[1]
-    r1   = high[1] - low[1]
-    s1   = not na(a) and close[1] > open[1] and r1 > 0.0 and b1 >= mult * a and b1 / r1 >= bRatio
-    b3   = (close[1] > open[1] ? close[1] - open[1] : 0.0) + (close[2] > open[2] ? close[2] - open[2] : 0.0) + (close[3] > open[3] ? close[3] - open[3] : 0.0)
-    s3   = close[1] > open[1] and close[2] > open[2] and close[3] > open[3] and b3 >= mult * nz(a, 1.0)
-    bs   = s3 ? 4 : 2
+    a       = ta.atr(al)[1]
+    b1      = close[1] - open[1]
+    r1      = high[1] - low[1]
+    s1      = not na(a) and close[1] > open[1] and r1 > 0.0 and b1 >= mult * a and b1 / r1 >= bRatio
+    b3      = (close[1] > open[1] ? close[1] - open[1] : 0.0) + (close[2] > open[2] ? close[2] - open[2] : 0.0) + (close[3] > open[3] ? close[3] - open[3] : 0.0)
+    s3      = close[1] > open[1] and close[2] > open[2] and close[3] > open[3] and b3 >= mult * nz(a, 1.0)
+    bs      = s3 ? 4 : 2
     zBot    = float(na)
     zTop    = float(na)
     leftOff = bs
-    if (s1 or s3) and not na(open[bs]) and not na(close[bs])
-        if math.abs(open[bs] - close[bs]) <= nMax * a
-            zBot := low[bs]
-            zTop := math.max(open[bs], close[bs])
-            for k = bs + 1 to bs + bLook
-                if na(open[k]) or na(close[k]) or na(low[k])
-                    break
-                if math.abs(open[k] - close[k]) > nMax * a
-                    break
-                zBot    := math.min(zBot, low[k])
-                zTop    := math.max(zTop, math.max(open[k], close[k]))
-                leftOff := k
+    baseOk  = (s1 or s3) and not na(open[bs]) and not na(close[bs]) and math.abs(open[bs] - close[bs]) <= nMax * a
+    if baseOk
+        zBot := low[bs]
+        zTop := math.max(open[bs], close[bs])
+        for k = bs + 1 to bs + bLook
+            if na(open[k]) or na(close[k]) or na(low[k])
+                break
+            if math.abs(open[k] - close[k]) > nMax * a
+                break
+            zBot    := math.min(zBot, low[k])
+            zTop    := math.max(zTop, math.max(open[k], close[k]))
+            leftOff := k
     valid = not na(zBot) and not na(zTop) and zTop > zBot
     [valid, zBot, zTop, valid ? leftOff : 0]
 
