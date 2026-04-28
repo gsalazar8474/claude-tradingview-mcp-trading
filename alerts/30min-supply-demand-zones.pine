@@ -20,9 +20,9 @@ indicator("Elder Santis - Supply & Demand Zones", overlay=true, max_bars_back=50
 // ── INPUTS ────────────────────────────────────────────────────────────────────
 zoneTF     = input.timeframe("240",  "Zone Source Timeframe (240=4H, 60=1H, 30=30min)")
 atrLen     = input.int(14,    "ATR Length",                    minval=1, maxval=50)
-minMult    = input.float(2.5, "Min Impulse Body (x ATR)",     minval=0.5, maxval=10.0, step=0.25)
+minMult    = input.float(1.5, "Min Impulse Body (x ATR)",     minval=0.5, maxval=10.0, step=0.25)
 bodyRatio  = input.float(0.5, "Min body / range ratio",        minval=0.3, maxval=1.0,  step=0.05)
-neutralMax = input.float(0.5, "Base candle body max (x ATR)", minval=0.1, maxval=2.0,  step=0.1)
+neutralMax = input.float(0.8, "Base candle body max (x ATR)", minval=0.1, maxval=2.0,  step=0.1)
 baseLook   = input.int(5,     "Max base candles to scan",     minval=1,  maxval=10)
 maxZones   = input.int(20,    "Max zones per side",           minval=1,  maxval=50)
 showMit    = input.bool(false, "Show mitigated zones (greyed out)")
