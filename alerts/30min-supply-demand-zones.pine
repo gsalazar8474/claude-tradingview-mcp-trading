@@ -72,27 +72,27 @@ f_demandZone(mult, bRatio, nMax, bLook, al) =>
     b3      = (close[1] > open[1] ? close[1] - open[1] : 0.0) + (close[2] > open[2] ? close[2] - open[2] : 0.0) + (close[3] > open[3] ? close[3] - open[3] : 0.0)
     s3      = close[1] > open[1] and close[2] > open[2] and close[3] > open[3] and b3 >= mult * nz(a, 1.0)
     bs      = s3 ? 4 : 2
-    zBot    = float(na)
     zTop    = float(na)
+    zBot    = float(na)
     leftOff = bs
     baseOk  = (s1 or s3) and not na(open[bs]) and not na(close[bs]) and math.abs(open[bs] - close[bs]) <= nMax * a
     if baseOk
-        zBot := low[bs]
         zTop := math.max(open[bs], close[bs])
+        zBot := low[bs]
         for k = bs + 1 to bs + bLook
             if na(open[k]) or na(close[k]) or na(low[k])
                 break
             if math.abs(open[k] - close[k]) > nMax * a
                 break
-            zBot    := math.min(zBot, low[k])
             zTop    := math.max(zTop, math.max(open[k], close[k]))
+            zBot    := math.min(zBot, low[k])
             leftOff := k
-    valid = not na(zBot) and not na(zTop) and zTop > zBot
-    [valid, zBot, zTop, valid ? leftOff : 0]
+    valid = not na(zTop) and not na(zBot) and zTop > zBot
+    [valid, zTop, zBot, valid ? leftOff : 0]
 
 // ── FETCH ZONE DATA FROM SOURCE TF ───────────────────────────────────────────
 [htf_sBear, htf_sTop, htf_sBot, htf_sOff] = request.security(syminfo.tickerid, zoneTF, f_supplyZone(minMult, bodyRatio, neutralMax, baseLook, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
-[htf_sBull, htf_dBot, htf_dTop, htf_dOff] = request.security(syminfo.tickerid, zoneTF, f_demandZone(minMult, bodyRatio, neutralMax, baseLook, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
+[htf_sBull, htf_dTop, htf_dBot, htf_dOff] = request.security(syminfo.tickerid, zoneTF, f_demandZone(minMult, bodyRatio, neutralMax, baseLook, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
 htf_bidx = request.security(syminfo.tickerid, zoneTF, bar_index, barmerge.gaps_off, barmerge.lookahead_off)
 
 is_new_htf = ta.change(htf_bidx) > 0
