@@ -17,7 +17,7 @@
 //   Bottom  : lowest wick across all base candles
 //
 // Zones extend right until price closes inside them.
-// Mitigated zones turn grey and stop extending — kept visible for reference.
+// Mitigated zones: hidden by default (toggle showMit to keep them grey for reference).
 // Works on any chart timeframe (4H shows 4H zones, 30min shows 30min zones).
 
 indicator("Elder Santis - Supply & Demand Zones", overlay=true, max_bars_back=500, max_boxes_count=100)
@@ -28,12 +28,12 @@ minMult    = input.float(3.0, "Min Move Size (x ATR)", minval=0.5, maxval=10.0, 
 neutralMax = input.float(0.8, "Neutral candle max body (x ATR)", minval=0.1, maxval=3.0, step=0.1, tooltip="Base scan stops when a candle body exceeds this threshold. Keeps the base tight.")
 baseLook   = input.int(6, "Max base candle lookback", minval=1, maxval=15, tooltip="Maximum bars to scan backwards for the consolidation base.")
 maxZones   = input.int(5, "Max zones per side", minval=1, maxval=20)
-showMit    = input.bool(true, "Show mitigated zones (greyed out)")
-supplyCol  = input.color(color.new(color.red, 75), "Supply zone fill")
-demandCol  = input.color(color.new(color.green, 75), "Demand zone fill")
-mitCol     = input.color(color.new(color.gray, 88), "Mitigated zone fill")
-supplyBorder = input.color(color.new(color.red, 10), "Supply zone border")
-demandBorder = input.color(color.new(color.green, 10), "Demand zone border")
+showMit      = input.bool(false, "Show mitigated zones (greyed out)")
+supplyCol    = input.color(color.new(color.red, 60), "Supply zone fill")
+demandCol    = input.color(color.new(color.green, 60), "Demand zone fill")
+mitCol       = input.color(color.new(color.gray, 88), "Mitigated zone fill")
+supplyBorder = input.color(color.new(color.red, 0), "Supply zone border")
+demandBorder = input.color(color.new(color.green, 0), "Demand zone border")
 
 atr = ta.atr(atrLen)
 
@@ -79,7 +79,12 @@ if isBigBear
         zBot    := math.min(zBot, math.min(open[k], close[k]))
         leftBar := bar_index - k
     if not na(zTop) and not na(zBot) and zTop > zBot
-        b = box.new(leftBar, zTop, bar_index, zBot, border_color=supplyBorder, bgcolor=supplyCol, border_width=1, extend=extend.right)
+        b = box.new(leftBar, zTop, bar_index, zBot, border_color=supplyBorder, bgcolor=supplyCol, border_width=2, extend=extend.right)
+        box.set_text(b, "Supply")
+        box.set_text_color(b, color.new(color.red, 0))
+        box.set_text_size(b, size.small)
+        box.set_text_halign(b, text.align_right)
+        box.set_text_valign(b, text.align_top)
         array.push(supplyBoxes, b)
         array.push(supplyHit, false)
         if array.size(supplyBoxes) > maxZones
@@ -102,7 +107,12 @@ if isBigBull
         zTop    := math.max(zTop, math.max(open[k], close[k]))
         leftBar := bar_index - k
     if not na(zBot) and not na(zTop) and zTop > zBot
-        b = box.new(leftBar, zTop, bar_index, zBot, border_color=demandBorder, bgcolor=demandCol, border_width=1, extend=extend.right)
+        b = box.new(leftBar, zTop, bar_index, zBot, border_color=demandBorder, bgcolor=demandCol, border_width=2, extend=extend.right)
+        box.set_text(b, "Demand")
+        box.set_text_color(b, color.new(color.green, 0))
+        box.set_text_size(b, size.small)
+        box.set_text_halign(b, text.align_right)
+        box.set_text_valign(b, text.align_top)
         array.push(demandBoxes, b)
         array.push(demandHit, false)
         if array.size(demandBoxes) > maxZones
