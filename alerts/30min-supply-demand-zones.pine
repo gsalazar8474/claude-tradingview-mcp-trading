@@ -1,66 +1,85 @@
 //@version=5
 // Elder Santis - Supply & Demand Zones
+// Synthesised from 6 YouTube transcripts (2026-04-28) + rules.json
 //
-// Rules (from rules.json + transcripts):
-//   Only draw OBVIOUS, explosive moves. If it is not clear — skip it.
-//   Cherry-pick only the clearest levels.
+// THEORY (Elder Santis, verbatim):
+//   "Big moves take hundreds of millions of dollars. Only institutions can
+//    create them. That is how we know where the big money sits — when the
+//    big move happens, the consolidation before it is where orders were
+//    filled. When price returns, those same participants may defend it again."
 //
-// SUPPLY ZONE (red):
-//   Trigger : explosive bearish move — single massive red candle OR
-//             3 consecutive red candles with combined body >= minMult x ATR
-//   Base    : neutral candle(s) immediately BEFORE the move
-//             scan stops the moment any candle body exceeds neutralMax x ATR
-//   Top     : highest WICK  across all base candles
-//   Bottom  : lowest  BODY-BOTTOM across all base candles
+// ─── SUPPLY ZONE (red) ───────────────────────────────────────────────────────
+//   1. Find an OBVIOUS explosive move DOWN
+//      → one huge red candle  OR  3 consecutive momentum red candles
+//      → must be aggressive, obvious — if unsure, skip it
+//   2. Find the neutral candle / consolidation IMMEDIATELY before that move
+//      → neutral candle = small body (opened and closed near same price), big wicks
+//      → consolidation  = 2-4 tight candles before the move
+//   3. Draw the box:
+//      → TOP    = highest WICK  of all base candles
+//      → BOTTOM = lowest  BODY-BOTTOM of all base candles
 //
-// DEMAND ZONE (green):
-//   Trigger : explosive bullish move — single massive green candle OR
-//             3 consecutive green candles with combined body >= minMult x ATR
-//   Base    : neutral candle(s) immediately BEFORE the move
-//   Top     : highest BODY-TOP across all base candles
-//   Bottom  : lowest  WICK  across all base candles
+// ─── DEMAND ZONE (green) ─────────────────────────────────────────────────────
+//   1. Find an OBVIOUS explosive move UP
+//      → one huge green candle  OR  3 consecutive momentum green candles
+//   2. Find the neutral candle / consolidation IMMEDIATELY before that move
+//   3. Draw the box:
+//      → TOP    = highest BODY-TOP of all base candles
+//      → BOTTOM = lowest  WICK  of all base candles
 //
-// Zones extend right until price closes inside (mitigation).
+// ─── INVALIDATION ────────────────────────────────────────────────────────────
+//   Zone is invalid when price CLOSES through it on the 30min chart.
+//   A wick through the zone is NOT invalidation.
+//
+// ─── TIMEFRAME USE ───────────────────────────────────────────────────────────
+//   Add this indicator at each timeframe. Start at 4H, refine to 30min.
+//   If 30min shows no visible consolidation (straight spike), drop to 15min
+//   to find the hidden base, then draw the zone there.
 
 indicator("Elder Santis - Supply & Demand Zones", overlay=true, max_bars_back=500, max_boxes_count=50)
 
 // ── INPUTS ────────────────────────────────────────────────────────────────────
-atrLen     = input.int(14,    "ATR Length",                  minval=1,   maxval=50)
-minMult    = input.float(2.0, "Min Move Body (x ATR)",       minval=0.5, maxval=10.0, step=0.25, tooltip="Raise to draw fewer, more obvious zones only.")
-bodyRatio  = input.float(0.5, "Min body / range ratio",      minval=0.3, maxval=1.0,  step=0.05, tooltip="Filters wicky indecisive candles. 0.5 = body must be at least half the range.")
-neutralMax = input.float(0.5, "Base candle body max (x ATR)",minval=0.1, maxval=2.0,  step=0.1,  tooltip="Base scan stops when a candle body exceeds this. Keeps the base tight.")
-baseLook   = input.int(6,     "Max base candles to scan",    minval=1,   maxval=15)
-maxZones   = input.int(5,     "Max zones per side",          minval=1,   maxval=20)
+atrLen     = input.int(14,    "ATR Length",                       minval=1, maxval=50)
+minMult    = input.float(2.0, "Impulse body minimum (x ATR)",    minval=0.5, maxval=10.0, step=0.25,
+             tooltip="How large the explosive candle body must be relative to ATR. Raise to draw only the most obvious zones.")
+bodyRatio  = input.float(0.5, "Impulse body / range minimum",    minval=0.3, maxval=1.0, step=0.05,
+             tooltip="Explosive candle body must be at least this fraction of its range. Filters wicky, indecisive candles.")
+neutralMax = input.float(0.5, "Base candle body maximum (x ATR)",minval=0.1, maxval=2.0, step=0.1,
+             tooltip="Base (neutral) candles must have small bodies. Scan stops when a candle body exceeds this.")
+baseLook   = input.int(6,     "Max base candles to scan",        minval=1, maxval=15,
+             tooltip="How many candles before the explosive move to include in the base zone.")
+maxZones   = input.int(5,     "Max zones per side",              minval=1, maxval=20)
 showMit    = input.bool(false, "Show mitigated zones (greyed out)")
-supplyCol    = input.color(color.new(color.red,   60), "Supply fill")
-demandCol    = input.color(color.new(color.green, 60), "Demand fill")
-mitCol       = input.color(color.new(color.gray,  88), "Mitigated fill")
+supplyFill   = input.color(color.new(color.red,   60), "Supply fill")
+demandFill   = input.color(color.new(color.green, 60), "Demand fill")
+mitFill      = input.color(color.new(color.gray,  88), "Mitigated fill")
 supplyBorder = input.color(color.new(color.red,    0), "Supply border")
 demandBorder = input.color(color.new(color.green,  0), "Demand border")
 
 atr = ta.atr(atrLen)
 
-// ── IMPULSE DETECTION ─────────────────────────────────────────────────────────
-// Detect on the current confirmed bar (bar[0]).
-// Base candles start immediately after the move: bar[1] for single-candle, bar[3] for 3-bar run.
+// ── EXPLOSIVE MOVE DETECTION ──────────────────────────────────────────────────
+// Detect on bar[0] (current bar, just confirmed by barstate.isconfirmed).
+// "One huge body candle OR 3 consecutive same-direction candles" — Elder Santis
 
 curBody  = math.abs(open - close)
 curRange = high - low
 
-// Single explosive candle: body large, body is most of the range
+// Single explosive candle: large body, body dominates the range
 singleBear = open > close and curRange > 0.0 and curBody >= minMult * atr and curBody / curRange >= bodyRatio
 singleBull = close > open and curRange > 0.0 and curBody >= minMult * atr and curBody / curRange >= bodyRatio
 
-// 3 consecutive same-direction candles: all bear/bull, combined body >= threshold
-body3Bear = (open > close ? open - close : 0.0) + (open[1] > close[1] ? open[1] - close[1] : 0.0) + (open[2] > close[2] ? open[2] - close[2] : 0.0)
-body3Bull = (close > open ? close - open : 0.0) + (close[1] > open[1] ? close[1] - open[1] : 0.0) + (close[2] > open[2] ? close[2] - open[2] : 0.0)
-threeBear = open > close and open[1] > close[1] and open[2] > close[2] and body3Bear >= minMult * atr
-threeBull = close > open and close[1] > open[1] and close[2] > open[2] and body3Bull >= minMult * atr
+// 3 consecutive candles all in the same direction, combined body >= threshold
+bear3body = (open > close ? open - close : 0.0) + (open[1] > close[1] ? open[1] - close[1] : 0.0) + (open[2] > close[2] ? open[2] - close[2] : 0.0)
+bull3body = (close > open ? close - open : 0.0) + (close[1] > open[1] ? close[1] - open[1] : 0.0) + (close[2] > open[2] ? close[2] - open[2] : 0.0)
+threeBear = open > close and open[1] > close[1] and open[2] > close[2] and bear3body >= minMult * atr
+threeBull = close > open and close[1] > open[1] and close[2] > open[2] and bull3body >= minMult * atr
 
 isBigBear = barstate.isconfirmed and not na(atr) and (singleBear or threeBear)
 isBigBull = barstate.isconfirmed and not na(atr) and (singleBull or threeBull)
 
-// Offset to the first base candle
+// Base starts immediately after the explosive sequence ends
+// 3-bar move → base at bar[3]; single bar → base at bar[1]
 bearBase = threeBear ? 3 : 1
 bullBase = threeBull ? 3 : 1
 
@@ -70,7 +89,10 @@ var bool[] supplyHit   = array.new_bool()
 var box[]  demandBoxes = array.new_box()
 var bool[] demandHit   = array.new_bool()
 
-// ── DRAW SUPPLY ZONE ──────────────────────────────────────────────────────────
+// ── SUPPLY ZONE ───────────────────────────────────────────────────────────────
+// Base scan: include neutral candles (small body) BEFORE the explosive move.
+// Stop the moment any candle body exceeds neutralMax x ATR — that candle is not neutral.
+// Zone: TOP = highest wick of base, BOTTOM = lowest body-bottom of base
 if isBigBear
     bs      = bearBase
     zTop    = na(high[bs]) ? float(na) : high[bs]
@@ -85,7 +107,7 @@ if isBigBear
         zBot    := math.min(zBot, math.min(open[k], close[k]))
         leftBar := bar_index - k
     if not na(zTop) and not na(zBot) and zTop > zBot
-        b = box.new(leftBar, zTop, bar_index, zBot, border_color=supplyBorder, bgcolor=supplyCol, border_width=2, extend=extend.right)
+        b = box.new(leftBar, zTop, bar_index, zBot, border_color=supplyBorder, bgcolor=supplyFill, border_width=2, extend=extend.right)
         array.push(supplyBoxes, b)
         array.push(supplyHit, false)
         if array.size(supplyBoxes) > maxZones
@@ -93,7 +115,8 @@ if isBigBear
             if not array.shift(supplyHit)
                 box.delete(oldest)
 
-// ── DRAW DEMAND ZONE ──────────────────────────────────────────────────────────
+// ── DEMAND ZONE ───────────────────────────────────────────────────────────────
+// Zone: TOP = highest body-top of base, BOTTOM = lowest wick of base
 if isBigBull
     bs      = bullBase
     zBot    = na(low[bs]) ? float(na) : low[bs]
@@ -108,7 +131,7 @@ if isBigBull
         zTop    := math.max(zTop, math.max(open[k], close[k]))
         leftBar := bar_index - k
     if not na(zBot) and not na(zTop) and zTop > zBot
-        b = box.new(leftBar, zTop, bar_index, zBot, border_color=demandBorder, bgcolor=demandCol, border_width=2, extend=extend.right)
+        b = box.new(leftBar, zTop, bar_index, zBot, border_color=demandBorder, bgcolor=demandFill, border_width=2, extend=extend.right)
         array.push(demandBoxes, b)
         array.push(demandHit, false)
         if array.size(demandBoxes) > maxZones
@@ -117,6 +140,8 @@ if isBigBull
                 box.delete(oldest)
 
 // ── MITIGATION ────────────────────────────────────────────────────────────────
+// Zone is mitigated when price CLOSES inside it — NOT just a wick or touch.
+// (Elder Santis: "it has to be a CLOSE through on the 30min — wick is not invalidation")
 if array.size(supplyBoxes) > 0
     for i = 0 to array.size(supplyBoxes) - 1
         if not array.get(supplyHit, i)
@@ -126,7 +151,7 @@ if array.size(supplyBoxes) > 0
                 box.set_extend(b, extend.none)
                 box.set_right(b, bar_index)
                 if showMit
-                    box.set_bgcolor(b, mitCol)
+                    box.set_bgcolor(b, mitFill)
                     box.set_border_color(b, color.new(color.gray, 50))
                 else
                     box.delete(b)
@@ -140,7 +165,7 @@ if array.size(demandBoxes) > 0
                 box.set_extend(b, extend.none)
                 box.set_right(b, bar_index)
                 if showMit
-                    box.set_bgcolor(b, mitCol)
+                    box.set_bgcolor(b, mitFill)
                     box.set_border_color(b, color.new(color.gray, 50))
                 else
                     box.delete(b)

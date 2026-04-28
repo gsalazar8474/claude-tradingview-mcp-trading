@@ -62,36 +62,81 @@
   "step2_supply_demand_zones": {
     "description": "Draw key levels on the 30min chart ONLY. These zones mark where institutional money has entered previously — supply/demand requires hundreds of millions of dollars to create, which is why they tend to hold.",
     "core_principle": "Only mark OBVIOUS big and fast moves. If you are unsure about a zone, skip it. No maybes. Cherry-pick only the clearest levels.",
+    "source_videos_scraped_2026_04_28": [
+      "HOW TO DRAW SUPPLY AND DEMAND CHEAT CODE (wNS45QL4hc0)",
+      "Master Supply & Demand In 10 Minutes (kXZGfMMgjhA)",
+      "How To Trade Supply & Demand Advanced (PNNzjDUQ1Js)",
+      "This Is How I Know Where The Market Is Going (IostZ_ZeZU8)",
+      "Beginners Guide 2 Hours (BdQlFYSWl0I)",
+      "HOW TO TRADE A+ SETUPS (pXSI_Q25b9c)"
+    ],
+
+    "what_is_a_supply_demand_zone": "Areas on the chart where there was an imbalance between buyers and sellers — where institutions entered aggressively. The zone price range is where all the orders were filled causing the explosive reaction. These are the only levels worth trading. Do not trade outside these zones.",
+
+    "what_causes_the_explosive_move": "Big moves take hundreds of millions of dollars. Only institutions can create them. That is how we know where the big money sits — when the big move happens, the consolidation before it is where orders were filled. When price returns to that level, those same participants may defend it again.",
 
     "demand_zone": {
-      "trigger": "Big, fast move UP on the 30min chart",
+      "trigger": "Big, fast move UP — one huge body candle OR 3 momentum green candles with continuation",
+      "what_to_look_for": "Big momentum green candles leading price up with aggression and continuation",
       "how_to_draw": [
-        "1. Find the consolidation or neutral candle IMMEDIATELY BEFORE the big move up",
-        "2. Bottom of the box = bottom wick of that consolidation candle",
-        "3. Top of the box = top body (close) of that consolidation candle",
-        "4. Extend the box forward until price revisits it"
+        "1. Find the consolidation or neutral candle IMMEDIATELY BEFORE the explosive move up",
+        "2. Neutral candle = small body where price opened and closed around the same area (big wicks, tiny body)",
+        "3. Consolidation = a short tight range of 2-4 candles before the big move up",
+        "4. Bottom of the box = bottom WICK of the neutral candle or consolidation",
+        "5. Top of the box = top BODY of the neutral candle or consolidation",
+        "6. Extend the box right until price revisits and closes through it"
       ],
       "confirmation_with_bookmap": "Look inside the zone on Bookmap. Confirm there are resting orange lines (passive buy orders) sitting in that level — not flashing orders, orders that have been there a while. This confirms the zone is defended by real liquidity.",
-      "confirmation_with_footprint": "Check footprint chart for the zone. Look for aggressive buy-side absorption history: big delta numbers that got absorbed with no follow-through downward, then a big move up. This confirms a real demand imbalance was created here."
+      "confirmation_with_footprint": "Look for aggressive buy-side absorption at the consolidation: big negative delta (sellers coming in) that gets absorbed with no downside follow-through, then huge positive delta follow-through upward. The reaction and follow-through confirm the zone is real.",
+      "confirmation_with_volume": "Volume should show selling exhaustion as price approaches the demand zone from above (volume dying out = reversal). Increasing volume approaching = breakout expected instead."
     },
 
     "supply_zone": {
-      "trigger": "Big, fast move DOWN on the 30min chart",
+      "trigger": "Big, fast move DOWN — one huge body candle OR 3 momentum red candles with continuation",
+      "what_to_look_for": "Big momentum red candles leading price down with aggression and continuation",
       "how_to_draw": [
-        "1. Find the consolidation or neutral candle IMMEDIATELY BEFORE the big move down",
-        "2. Top of the box = top wick of that consolidation candle",
-        "3. Bottom of the box = bottom body (close) of that consolidation candle",
-        "4. Extend the box forward until price revisits it"
+        "1. Find the consolidation or neutral candle IMMEDIATELY BEFORE the explosive move down",
+        "2. Neutral candle = small body where price opened and closed around the same area (big wicks, tiny body)",
+        "3. Consolidation = a short tight range of 2-4 candles before the big move down",
+        "4. Top of the box = top WICK of the neutral candle or consolidation",
+        "5. Bottom of the box = bottom BODY of the neutral candle or consolidation",
+        "6. Extend the box right until price revisits and closes through it"
       ],
       "confirmation_with_bookmap": "Look inside the zone on Bookmap. Confirm there are resting orange lines (passive sell orders) sitting at that level — orders that have sat there for a while, not fresh orders just placed. This confirms real sellers are defending the zone.",
-      "confirmation_with_footprint": "Check footprint chart for the zone. Look for sell-side absorption history: big delta numbers that got absorbed with no follow-through upward, then a big move down."
+      "confirmation_with_footprint": "Look for sell-side absorption at the consolidation: big positive delta (buyers coming in) that gets absorbed with no upside follow-through, then huge negative delta follow-through downward.",
+      "confirmation_with_volume": "Volume should die out as price approaches supply (reversal signal). Increasing volume into supply = potential breakout."
+    },
+
+    "timeframe_refinement": {
+      "process": "Work top-down through each timeframe to make the zone as precise as possible",
+      "order": ["4H (start here, find the initial zone)", "2H (refine)", "1H (refine further)", "30min (final refinement, usually where you stop)", "15min (only if 30min shows NO visible consolidation — straight spike)"],
+      "how_to_refine": "At each timeframe, adjust the box edges to better fit the wick and body of the base candle or consolidation. The zone gets cleaner and more precise as you zoom in.",
+      "15min_rule": "ONLY drop to 15min when there is a massive spike on 30min with zero visible consolidation. Drop to 15min to find the hidden consolidation before that big move, draw the zone there."
+    },
+
+    "zone_invalidation": {
+      "rule": "On the 30min timeframe, if price CLOSES above or below a zone — the zone is INVALID. Do not trade it anymore.",
+      "note": "It must be a CLOSE through the zone on the 30min, not just a wick or a touch. A wick through is not invalidation."
+    },
+
+    "zone_entry_plays": {
+      "bounce": "Price returns to zone → watch for reversal → enter in the direction of the 4H trend",
+      "break_retest": "Price breaks THROUGH a zone → comes back to retest that broken zone → enter in the breakout direction",
+      "stop_loss_bounce": "Above supply for shorts, below demand for longs",
+      "stop_loss_break_retest": "Below the higher low formed on the retest (longs) or above the lower high (shorts)",
+      "target": "VWAP, next supply/demand zone, resting liquidity on Bookmap"
     },
 
     "zone_strength_rules": [
-      "Zones that have been tested fewer times are stronger (untouched demand/supply is best)",
-      "Zones with visible passive order confluence on Bookmap are higher probability",
-      "Zones with footprint absorption history are higher probability",
-      "The bigger and faster the original move that created the zone, the stronger it is",
+      "Fresh (untested) zones are the strongest — once a zone is visited price is less likely to hold it again",
+      "Bigger and faster the explosive move = stronger the zone",
+      "Footprint absorption at the consolidation = very strong confirmation (abnormal delta that gets absorbed)",
+      "Large resting passive orders on Bookmap sitting inside the zone = strong confirmation",
+      "Volume dying out as price approaches the zone = reversal expected",
+      "Volume increasing into the zone = expect a break instead of a bounce",
+      "If no visible consolidation on 30min, check 15min for the hidden base",
+      "Two nearby consolidation areas before the same big move can be combined into one larger box",
+      "Old zones often become new zones when broken — a broken supply becomes demand and vice versa",
       "Do not mark a zone if the original move was not clearly big and fast — skip it"
     ]
   },
