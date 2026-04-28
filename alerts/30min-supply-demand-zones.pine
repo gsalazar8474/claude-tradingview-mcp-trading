@@ -20,9 +20,9 @@ indicator("Elder Santis - Supply & Demand Zones", overlay=true, max_bars_back=50
 // ── INPUTS ────────────────────────────────────────────────────────────────────
 zoneTF     = input.timeframe("240",  "Zone Source Timeframe (240=4H, 60=1H, 30=30min)")
 atrLen     = input.int(14,    "ATR Length",                    minval=1, maxval=50)
-minMult    = input.float(3.0, "Min Impulse Body (x ATR)",     minval=0.5, maxval=10.0, step=0.25)
-bodyRatio  = input.float(0.6, "Core candle body / range ratio", minval=0.3, maxval=1.0,  step=0.05)
-neutralMax = input.float(0.4, "Base candle body max (x ATR)", minval=0.1, maxval=2.0,  step=0.1)
+minMult    = input.float(2.5, "Min Impulse Body (x ATR)",     minval=0.5, maxval=10.0, step=0.25)
+bodyRatio  = input.float(0.5, "Min body / range ratio",        minval=0.3, maxval=1.0,  step=0.05)
+neutralMax = input.float(0.5, "Base candle body max (x ATR)", minval=0.1, maxval=2.0,  step=0.1)
 baseLook   = input.int(3,     "Max base candles to scan",     minval=1,  maxval=10)
 maxZones   = input.int(20,    "Max zones per side",           minval=1,  maxval=50)
 showMit    = input.bool(false, "Show mitigated zones (greyed out)")
@@ -39,35 +39,17 @@ demandBorder = input.color(color.new(#004400, 20), "Demand border")
 // that does not drift when the chart is scrolled or zoomed.
 
 f_supplyZone(mult, bRatio, nMax, bLook, al) =>
-    a = ta.atr(al)[1]
-    // ── Core: 3 consecutive bearish candles, each quality-filtered ──────────
-    // bar[1]=most recent, bar[2], bar[3]=oldest of the three
-    cb1 = open[1] - close[1]
-    cb2 = open[2] - close[2]
-    cb3 = open[3] - close[3]
-    cr1 = high[1] - low[1]
-    cr2 = high[2] - low[2]
-    cr3 = high[3] - low[3]
-    coreOk = not na(a) and
-             open[1] > close[1] and open[2] > close[2] and open[3] > close[3] and
-             cr1 > 0.0 and cb1 >= 0.5 * a and cb1 / cr1 >= bRatio and
-             cr2 > 0.0 and cb2 >= 0.5 * a and cb2 / cr2 >= bRatio and
-             cr3 > 0.0 and cb3 >= 0.5 * a and cb3 / cr3 >= bRatio and
-             cb1 + cb2 + cb3 >= mult * a
-    // ── Extension candles 4 and 5: same direction, body >= 0.2 ATR,
-    //    opposing (upper) wick <= 0.3 x range ─────────────────────────────
-    er4 = high[4] - low[4]
-    ew4 = high[4] - open[4]
-    ext4 = open[4] > close[4] and (open[4] - close[4]) >= 0.2 * a and er4 > 0.0 and ew4 <= 0.3 * er4
-    er5 = high[5] - low[5]
-    ew5 = high[5] - open[5]
-    ext5 = open[5] > close[5] and (open[5] - close[5]) >= 0.2 * a and er5 > 0.0 and ew5 <= 0.3 * er5
-    // Base starts immediately after the entire move sequence
-    bs = coreOk ? (ext4 and ext5 ? 6 : ext4 ? 5 : 4) : 0
+    a    = ta.atr(al)[1]
+    b1   = open[1] - close[1]
+    r1   = high[1] - low[1]
+    s1   = not na(a) and open[1] > close[1] and r1 > 0.0 and b1 >= mult * a and b1 / r1 >= bRatio
+    b3   = (open[1] > close[1] ? open[1] - close[1] : 0.0) + (open[2] > close[2] ? open[2] - close[2] : 0.0) + (open[3] > close[3] ? open[3] - close[3] : 0.0)
+    s3   = open[1] > close[1] and open[2] > close[2] and open[3] > close[3] and b3 >= mult * nz(a, 1.0)
+    bs   = s3 ? 4 : 2
     zTop    = float(na)
     zBot    = float(na)
     leftOff = bs
-    if coreOk and not na(open[bs]) and not na(close[bs])
+    if (s1 or s3) and not na(open[bs]) and not na(close[bs])
         if math.abs(open[bs] - close[bs]) <= nMax * a
             zTop := high[bs]
             zBot := math.min(open[bs], close[bs])
@@ -83,33 +65,17 @@ f_supplyZone(mult, bRatio, nMax, bLook, al) =>
     [valid, zTop, zBot, valid ? leftOff : 0]
 
 f_demandZone(mult, bRatio, nMax, bLook, al) =>
-    a = ta.atr(al)[1]
-    // ── Core: 3 consecutive bullish candles, each quality-filtered ──────────
-    cb1 = close[1] - open[1]
-    cb2 = close[2] - open[2]
-    cb3 = close[3] - open[3]
-    cr1 = high[1] - low[1]
-    cr2 = high[2] - low[2]
-    cr3 = high[3] - low[3]
-    coreOk = not na(a) and
-             close[1] > open[1] and close[2] > open[2] and close[3] > open[3] and
-             cr1 > 0.0 and cb1 >= 0.5 * a and cb1 / cr1 >= bRatio and
-             cr2 > 0.0 and cb2 >= 0.5 * a and cb2 / cr2 >= bRatio and
-             cr3 > 0.0 and cb3 >= 0.5 * a and cb3 / cr3 >= bRatio and
-             cb1 + cb2 + cb3 >= mult * a
-    // ── Extension candles 4 and 5: same direction, body >= 0.2 ATR,
-    //    opposing (lower) wick <= 0.3 x range ─────────────────────────────
-    er4 = high[4] - low[4]
-    ew4 = open[4] - low[4]
-    ext4 = close[4] > open[4] and (close[4] - open[4]) >= 0.2 * a and er4 > 0.0 and ew4 <= 0.3 * er4
-    er5 = high[5] - low[5]
-    ew5 = open[5] - low[5]
-    ext5 = close[5] > open[5] and (close[5] - open[5]) >= 0.2 * a and er5 > 0.0 and ew5 <= 0.3 * er5
-    bs = coreOk ? (ext4 and ext5 ? 6 : ext4 ? 5 : 4) : 0
+    a    = ta.atr(al)[1]
+    b1   = close[1] - open[1]
+    r1   = high[1] - low[1]
+    s1   = not na(a) and close[1] > open[1] and r1 > 0.0 and b1 >= mult * a and b1 / r1 >= bRatio
+    b3   = (close[1] > open[1] ? close[1] - open[1] : 0.0) + (close[2] > open[2] ? close[2] - open[2] : 0.0) + (close[3] > open[3] ? close[3] - open[3] : 0.0)
+    s3   = close[1] > open[1] and close[2] > open[2] and close[3] > open[3] and b3 >= mult * nz(a, 1.0)
+    bs   = s3 ? 4 : 2
     zBot    = float(na)
     zTop    = float(na)
     leftOff = bs
-    if coreOk and not na(open[bs]) and not na(close[bs])
+    if (s1 or s3) and not na(open[bs]) and not na(close[bs])
         if math.abs(open[bs] - close[bs]) <= nMax * a
             zBot := low[bs]
             zTop := math.max(open[bs], close[bs])
