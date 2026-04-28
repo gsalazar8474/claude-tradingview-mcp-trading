@@ -49,13 +49,13 @@ f_supplyZone(mult, bRatio, nMax, bLook, al) =>
     leftOff  = bs
     if (s1 or s3) and not na(open[bs]) and not na(close[bs])
         baseBody = math.abs(open[bs] - close[bs])
-        if baseBody <= nMax * nz(a)
+        if baseBody <= nMax * a
             zTop   := high[bs]
             zBot   := math.min(open[bs], close[bs])
             for k = bs + 1 to bs + bLook
                 if na(open[k]) or na(close[k]) or na(high[k])
                     break
-                if math.abs(open[k] - close[k]) > nMax * nz(a)
+                if math.abs(open[k] - close[k]) > nMax * a
                     break
                 zTop    := math.max(zTop, high[k])
                 zBot    := math.min(zBot, math.min(open[k], close[k]))
@@ -76,13 +76,13 @@ f_demandZone(mult, bRatio, nMax, bLook, al) =>
     leftOff  = bs
     if (s1 or s3) and not na(open[bs]) and not na(close[bs])
         baseBody = math.abs(open[bs] - close[bs])
-        if baseBody <= nMax * nz(a)
+        if baseBody <= nMax * a
             zBot   := low[bs]
             zTop   := math.max(open[bs], close[bs])
             for k = bs + 1 to bs + bLook
                 if na(open[k]) or na(close[k]) or na(low[k])
                     break
-                if math.abs(open[k] - close[k]) > nMax * nz(a)
+                if math.abs(open[k] - close[k]) > nMax * a
                     break
                 zBot    := math.min(zBot, low[k])
                 zTop    := math.max(zTop, math.max(open[k], close[k]))
