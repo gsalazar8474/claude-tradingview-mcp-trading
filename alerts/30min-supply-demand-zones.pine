@@ -1,106 +1,58 @@
 //@version=5
 // Elder Santis - Supply & Demand Zones
 //
-// Zones are sourced from the "Zone Source Timeframe" (default 4H) via
-// request.security() so the SAME zones appear on any chart timeframe.
-// Open on 4H, 1H, 30min, or 5min — identical red/green boxes.
+// Works on ANY chart timeframe. Add to 4H → 4H zones. Add to 30min → 30min zones.
+// Trader manually refines down through timeframes.
 //
-// SUPPLY: explosive bearish move → base candles BEFORE move
-//   Top    = highest wick of base    |    Bottom = lowest body-bottom of base
+// DETECTION (on every confirmed bar):
+//   Explosive move = single candle body >= minMult x ATR AND body/range >= bodyRatio
+//                 OR 3 consecutive same-direction candles, combined body >= minMult x ATR
 //
-// DEMAND: explosive bullish move → base candles BEFORE move
-//   Top    = highest body-top of base  |  Bottom = lowest wick of base
+// BASE (candles immediately before the explosive move):
+//   Neutral candle = body <= neutralMax x ATR (small body, opened/closed near same price)
+//   Scan back up to baseLook candles, stop when body exceeds neutralMax x ATR
 //
-// Zones extend right until price CLOSES inside them (mitigation).
+// ZONE BOUNDARIES:
+//   Supply  → top = highest WICK of base,     bottom = lowest BODY-BOTTOM of base
+//   Demand  → top = highest BODY-TOP of base, bottom = lowest WICK of base
 
-indicator("Elder Santis - Supply & Demand Zones", overlay=true, max_bars_back=500, max_boxes_count=50)
+indicator("Elder Santis - Supply & Demand Zones", overlay=true, max_bars_back=500, max_boxes_count=100)
 
-// ── INPUTS ────────────────────────────────────────────────────────────────────
-zoneTF     = input.timeframe("240",  "Zone Source Timeframe (240 = 4H)")
-atrLen     = input.int(14,    "ATR Length",                   minval=1, maxval=50)
-minMult    = input.float(2.0, "Min Impulse Body (x ATR)",    minval=0.5, maxval=10.0, step=0.25)
-bodyRatio  = input.float(0.5, "Min body / range ratio",       minval=0.3, maxval=1.0,  step=0.05)
-neutralMax = input.float(0.4, "Base candle body max (x ATR)", minval=0.1, maxval=2.0,  step=0.1)
-baseLook   = input.int(3,     "Max base candles to scan",    minval=1, maxval=8)
-maxZones   = input.int(5,     "Max zones per side",          minval=1, maxval=20)
-showMit    = input.bool(false, "Show mitigated zones (greyed out)")
+atrLen     = input.int(14,    "ATR Length",                   minval=1,  maxval=50)
+minMult    = input.float(2.0, "Impulse body min (x ATR)",    minval=0.5, maxval=10.0, step=0.25)
+bodyRatio  = input.float(0.5, "Impulse body / range min",    minval=0.3, maxval=1.0,  step=0.05)
+neutralMax = input.float(0.5, "Base candle body max (x ATR)",minval=0.1, maxval=2.0,  step=0.1)
+baseLook   = input.int(10,    "Max base candles to scan",    minval=1,  maxval=20)
+maxZones   = input.int(8,     "Max zones per side",          minval=1,  maxval=20)
+showMit    = input.bool(false, "Show mitigated zones")
 supplyFill   = input.color(color.new(color.red,   60), "Supply fill")
 demandFill   = input.color(color.new(color.green, 60), "Demand fill")
 mitFill      = input.color(color.new(color.gray,  88), "Mitigated fill")
 supplyBorder = input.color(color.new(color.red,    0), "Supply border")
 demandBorder = input.color(color.new(color.green,  0), "Demand border")
 
-// ── ZONE DETECTION FUNCTIONS (evaluated inside request.security) ───────────────
-// All use bar[1] as the explosive move bar (last confirmed zone-TF bar).
-// Base candles are bar[bs]..bar[bs+baseLook] where bs=2 (single) or 4 (3-bar run).
+atr = ta.atr(atrLen)
 
-f_supplyZone(mult, bRatio, nMax, bLook, al) =>
-    a   = ta.atr(al)[1]
-    b1  = open[1] - close[1]
-    r1  = high[1] - low[1]
-    // Single explosive bearish candle
-    s1  = not na(a) and open[1] > close[1] and r1 > 0.0 and b1 >= mult * a and b1 / r1 >= bRatio
-    // 3-bar consecutive bearish run
-    b3  = (open[1]>close[1] ? open[1]-close[1] : 0.0) + (open[2]>close[2] ? open[2]-close[2] : 0.0) + (open[3]>close[3] ? open[3]-close[3] : 0.0)
-    s3  = open[1]>close[1] and open[2]>close[2] and open[3]>close[3] and b3 >= mult * nz(a, 1.0)
-    isBear = s1 or s3
-    bs  = s3 ? 4 : 2
-    zTop    = float(na)
-    zBot    = float(na)
-    leftOff = bs
-    if isBear and not na(high[bs]) and not na(open[bs])
-        zTop    := high[bs]
-        zBot    := math.min(open[bs], close[bs])
-        for k = bs + 1 to bs + bLook
-            if na(open[k]) or na(close[k]) or na(high[k])
-                break
-            if math.abs(open[k] - close[k]) > nMax * nz(a, 1.0)
-                break
-            zTop    := math.max(zTop, high[k])
-            zBot    := math.min(zBot, math.min(open[k], close[k]))
-            leftOff := k
-    // Return time of leftmost base bar so chart can compute correct left edge
-    leftTime = isBear and not na(zTop) ? time[leftOff] : int(na)
-    [isBear, zTop, zBot, leftTime]
+// ── EXPLOSIVE MOVE DETECTION ──────────────────────────────────────────────────
+// Detected on bar[0] (current bar, just confirmed).
 
-f_demandZone(mult, bRatio, nMax, bLook, al) =>
-    a   = ta.atr(al)[1]
-    b1  = close[1] - open[1]
-    r1  = high[1] - low[1]
-    s1  = not na(a) and close[1] > open[1] and r1 > 0.0 and b1 >= mult * a and b1 / r1 >= bRatio
-    b3  = (close[1]>open[1] ? close[1]-open[1] : 0.0) + (close[2]>open[2] ? close[2]-open[2] : 0.0) + (close[3]>open[3] ? close[3]-open[3] : 0.0)
-    s3  = close[1]>open[1] and close[2]>open[2] and close[3]>open[3] and b3 >= mult * nz(a, 1.0)
-    isBull = s1 or s3
-    bs  = s3 ? 4 : 2
-    zBot    = float(na)
-    zTop    = float(na)
-    leftOff = bs
-    if isBull and not na(low[bs]) and not na(open[bs])
-        zBot    := low[bs]
-        zTop    := math.max(open[bs], close[bs])
-        for k = bs + 1 to bs + bLook
-            if na(open[k]) or na(close[k]) or na(low[k])
-                break
-            if math.abs(open[k] - close[k]) > nMax * nz(a, 1.0)
-                break
-            zBot    := math.min(zBot, low[k])
-            zTop    := math.max(zTop, math.max(open[k], close[k]))
-            leftOff := k
-    leftTime = isBull and not na(zBot) ? time[leftOff] : int(na)
-    [isBull, zBot, zTop, leftTime]
+curBody  = math.abs(open - close)
+curRange = high - low
 
-// ── FETCH ZONE DATA FROM SOURCE TIMEFRAME ─────────────────────────────────────
-[htf_sBear, htf_sTop, htf_sBot, htf_sTime] = request.security(syminfo.tickerid, zoneTF, f_supplyZone(minMult, bodyRatio, neutralMax, baseLook, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
-[htf_sBull, htf_dBot, htf_dTop, htf_dTime] = request.security(syminfo.tickerid, zoneTF, f_demandZone(minMult, bodyRatio, neutralMax, baseLook, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
-htf_bidx = request.security(syminfo.tickerid, zoneTF, bar_index, barmerge.gaps_off, barmerge.lookahead_off)
+singleBear = open > close and curRange > 0.0 and curBody >= minMult * atr and curBody / curRange >= bodyRatio
+singleBull = close > open and curRange > 0.0 and curBody >= minMult * atr and curBody / curRange >= bodyRatio
 
-// Fire zone drawing once per new source-TF bar
-is_new_htf = ta.change(htf_bidx) > 0
+bear3body = (open   > close   ? open   - close   : 0.0) + (open[1] > close[1] ? open[1] - close[1] : 0.0) + (open[2] > close[2] ? open[2] - close[2] : 0.0)
+bull3body = (close  > open    ? close  - open    : 0.0) + (close[1] > open[1] ? close[1] - open[1] : 0.0) + (close[2] > open[2] ? close[2] - open[2] : 0.0)
+threeBear = open > close and open[1] > close[1] and open[2] > close[2] and bear3body >= minMult * atr
+threeBull = close > open and close[1] > open[1] and close[2] > open[2] and bull3body >= minMult * atr
 
-// Convert a zone-TF bar timestamp to a chart bar index
-// (time on chart is ms since epoch; each chart bar covers timeframe.in_seconds()*1000 ms)
-chartMs = timeframe.in_seconds() * 1000
-f_timeToBar(t) => na(t) ? bar_index : math.max(0, bar_index - math.round((time - t) / chartMs))
+isBigBear = barstate.isconfirmed and not na(atr) and (singleBear or threeBear)
+isBigBull = barstate.isconfirmed and not na(atr) and (singleBull or threeBull)
+
+// Base starts at bar[1] after a single-candle move, bar[3] after a 3-candle run
+bearBase = threeBear ? 3 : 1
+bullBase = threeBull ? 3 : 1
 
 // ── ZONE STORAGE ──────────────────────────────────────────────────────────────
 var box[]  supplyBoxes = array.new_box()
@@ -108,30 +60,53 @@ var bool[] supplyHit   = array.new_bool()
 var box[]  demandBoxes = array.new_box()
 var bool[] demandHit   = array.new_bool()
 
-// ── DRAW SUPPLY ZONE ──────────────────────────────────────────────────────────
-if is_new_htf and htf_sBear and not na(htf_sTop) and not na(htf_sBot) and htf_sTop > htf_sBot
-    leftBar = f_timeToBar(htf_sTime)
-    b = box.new(leftBar, htf_sTop, bar_index, htf_sBot, border_color=supplyBorder, bgcolor=supplyFill, border_width=2, extend=extend.right)
-    array.push(supplyBoxes, b)
-    array.push(supplyHit, false)
-    if array.size(supplyBoxes) > maxZones
-        oldest = array.shift(supplyBoxes)
-        if not array.shift(supplyHit)
-            box.delete(oldest)
+// ── SUPPLY ZONE ───────────────────────────────────────────────────────────────
+if isBigBear
+    bs   = bearBase
+    zTop = na(high[bs]) ? float(na) : high[bs]
+    zBot = na(open[bs]) or na(close[bs]) ? float(na) : math.min(open[bs], close[bs])
+    leftBar = bar_index - bs
+    for k = bs + 1 to bs + baseLook
+        if na(open[k]) or na(close[k]) or na(high[k])
+            break
+        if math.abs(open[k] - close[k]) > neutralMax * nz(atr[k], atr)
+            break
+        zTop    := math.max(zTop, high[k])
+        zBot    := math.min(zBot, math.min(open[k], close[k]))
+        leftBar := bar_index - k
+    if not na(zTop) and not na(zBot) and zTop > zBot
+        b = box.new(leftBar, zTop, bar_index, zBot, border_color=supplyBorder, bgcolor=supplyFill, border_width=2, extend=extend.right)
+        array.push(supplyBoxes, b)
+        array.push(supplyHit, false)
+        if array.size(supplyBoxes) > maxZones
+            oldest = array.shift(supplyBoxes)
+            if not array.shift(supplyHit)
+                box.delete(oldest)
 
-// ── DRAW DEMAND ZONE ──────────────────────────────────────────────────────────
-if is_new_htf and htf_sBull and not na(htf_dBot) and not na(htf_dTop) and htf_dTop > htf_dBot
-    leftBar = f_timeToBar(htf_dTime)
-    b = box.new(leftBar, htf_dTop, bar_index, htf_dBot, border_color=demandBorder, bgcolor=demandFill, border_width=2, extend=extend.right)
-    array.push(demandBoxes, b)
-    array.push(demandHit, false)
-    if array.size(demandBoxes) > maxZones
-        oldest = array.shift(demandBoxes)
-        if not array.shift(demandHit)
-            box.delete(oldest)
+// ── DEMAND ZONE ───────────────────────────────────────────────────────────────
+if isBigBull
+    bs   = bullBase
+    zBot = na(low[bs]) ? float(na) : low[bs]
+    zTop = na(open[bs]) or na(close[bs]) ? float(na) : math.max(open[bs], close[bs])
+    leftBar = bar_index - bs
+    for k = bs + 1 to bs + baseLook
+        if na(open[k]) or na(close[k]) or na(low[k])
+            break
+        if math.abs(open[k] - close[k]) > neutralMax * nz(atr[k], atr)
+            break
+        zBot    := math.min(zBot, low[k])
+        zTop    := math.max(zTop, math.max(open[k], close[k]))
+        leftBar := bar_index - k
+    if not na(zBot) and not na(zTop) and zTop > zBot
+        b = box.new(leftBar, zTop, bar_index, zBot, border_color=demandBorder, bgcolor=demandFill, border_width=2, extend=extend.right)
+        array.push(demandBoxes, b)
+        array.push(demandHit, false)
+        if array.size(demandBoxes) > maxZones
+            oldest = array.shift(demandBoxes)
+            if not array.shift(demandHit)
+                box.delete(oldest)
 
 // ── MITIGATION ────────────────────────────────────────────────────────────────
-// Zone is mitigated when price CLOSES inside it on the current chart (not just a wick).
 if array.size(supplyBoxes) > 0
     for i = 0 to array.size(supplyBoxes) - 1
         if not array.get(supplyHit, i)
