@@ -1,54 +1,28 @@
 //@version=5
 // Elder Santis - Supply & Demand Zones
-// Synthesised from 6 YouTube transcripts (2026-04-28) + rules.json
 //
-// THEORY (Elder Santis, verbatim):
-//   "Big moves take hundreds of millions of dollars. Only institutions can
-//    create them. That is how we know where the big money sits — when the
-//    big move happens, the consolidation before it is where orders were
-//    filled. When price returns, those same participants may defend it again."
+// Zones are sourced from the "Zone Source Timeframe" (default 4H) via
+// request.security() so the SAME zones appear on any chart timeframe.
+// Open on 4H, 1H, 30min, or 5min — identical red/green boxes.
 //
-// ─── SUPPLY ZONE (red) ───────────────────────────────────────────────────────
-//   1. Find an OBVIOUS explosive move DOWN
-//      → one huge red candle  OR  3 consecutive momentum red candles
-//      → must be aggressive, obvious — if unsure, skip it
-//   2. Find the neutral candle / consolidation IMMEDIATELY before that move
-//      → neutral candle = small body (opened and closed near same price), big wicks
-//      → consolidation  = 2-4 tight candles before the move
-//   3. Draw the box:
-//      → TOP    = highest WICK  of all base candles
-//      → BOTTOM = lowest  BODY-BOTTOM of all base candles
+// SUPPLY: explosive bearish move → base candles BEFORE move
+//   Top    = highest wick of base    |    Bottom = lowest body-bottom of base
 //
-// ─── DEMAND ZONE (green) ─────────────────────────────────────────────────────
-//   1. Find an OBVIOUS explosive move UP
-//      → one huge green candle  OR  3 consecutive momentum green candles
-//   2. Find the neutral candle / consolidation IMMEDIATELY before that move
-//   3. Draw the box:
-//      → TOP    = highest BODY-TOP of all base candles
-//      → BOTTOM = lowest  WICK  of all base candles
+// DEMAND: explosive bullish move → base candles BEFORE move
+//   Top    = highest body-top of base  |  Bottom = lowest wick of base
 //
-// ─── INVALIDATION ────────────────────────────────────────────────────────────
-//   Zone is invalid when price CLOSES through it on the 30min chart.
-//   A wick through the zone is NOT invalidation.
-//
-// ─── TIMEFRAME USE ───────────────────────────────────────────────────────────
-//   Add this indicator at each timeframe. Start at 4H, refine to 30min.
-//   If 30min shows no visible consolidation (straight spike), drop to 15min
-//   to find the hidden base, then draw the zone there.
+// Zones extend right until price CLOSES inside them (mitigation).
 
 indicator("Elder Santis - Supply & Demand Zones", overlay=true, max_bars_back=500, max_boxes_count=50)
 
 // ── INPUTS ────────────────────────────────────────────────────────────────────
-atrLen     = input.int(14,    "ATR Length",                       minval=1, maxval=50)
-minMult    = input.float(2.0, "Impulse body minimum (x ATR)",    minval=0.5, maxval=10.0, step=0.25,
-             tooltip="How large the explosive candle body must be relative to ATR. Raise to draw only the most obvious zones.")
-bodyRatio  = input.float(0.5, "Impulse body / range minimum",    minval=0.3, maxval=1.0, step=0.05,
-             tooltip="Explosive candle body must be at least this fraction of its range. Filters wicky, indecisive candles.")
-neutralMax = input.float(0.5, "Base candle body maximum (x ATR)",minval=0.1, maxval=2.0, step=0.1,
-             tooltip="Base (neutral) candles must have small bodies. Scan stops when a candle body exceeds this.")
-baseLook   = input.int(6,     "Max base candles to scan",        minval=1, maxval=15,
-             tooltip="How many candles before the explosive move to include in the base zone.")
-maxZones   = input.int(5,     "Max zones per side",              minval=1, maxval=20)
+zoneTF     = input.timeframe("240",  "Zone Source Timeframe (240 = 4H)")
+atrLen     = input.int(14,    "ATR Length",                   minval=1, maxval=50)
+minMult    = input.float(2.0, "Min Impulse Body (x ATR)",    minval=0.5, maxval=10.0, step=0.25)
+bodyRatio  = input.float(0.5, "Min body / range ratio",       minval=0.3, maxval=1.0,  step=0.05)
+neutralMax = input.float(0.4, "Base candle body max (x ATR)", minval=0.1, maxval=2.0,  step=0.1)
+baseLook   = input.int(3,     "Max base candles to scan",    minval=1, maxval=8)
+maxZones   = input.int(5,     "Max zones per side",          minval=1, maxval=20)
 showMit    = input.bool(false, "Show mitigated zones (greyed out)")
 supplyFill   = input.color(color.new(color.red,   60), "Supply fill")
 demandFill   = input.color(color.new(color.green, 60), "Demand fill")
@@ -56,32 +30,77 @@ mitFill      = input.color(color.new(color.gray,  88), "Mitigated fill")
 supplyBorder = input.color(color.new(color.red,    0), "Supply border")
 demandBorder = input.color(color.new(color.green,  0), "Demand border")
 
-atr = ta.atr(atrLen)
+// ── ZONE DETECTION FUNCTIONS (evaluated inside request.security) ───────────────
+// All use bar[1] as the explosive move bar (last confirmed zone-TF bar).
+// Base candles are bar[bs]..bar[bs+baseLook] where bs=2 (single) or 4 (3-bar run).
 
-// ── EXPLOSIVE MOVE DETECTION ──────────────────────────────────────────────────
-// Detect on bar[0] (current bar, just confirmed by barstate.isconfirmed).
-// "One huge body candle OR 3 consecutive same-direction candles" — Elder Santis
+f_supplyZone(mult, bRatio, nMax, bLook, al) =>
+    a   = ta.atr(al)[1]
+    b1  = open[1] - close[1]
+    r1  = high[1] - low[1]
+    // Single explosive bearish candle
+    s1  = not na(a) and open[1] > close[1] and r1 > 0.0 and b1 >= mult * a and b1 / r1 >= bRatio
+    // 3-bar consecutive bearish run
+    b3  = (open[1]>close[1] ? open[1]-close[1] : 0.0) + (open[2]>close[2] ? open[2]-close[2] : 0.0) + (open[3]>close[3] ? open[3]-close[3] : 0.0)
+    s3  = open[1]>close[1] and open[2]>close[2] and open[3]>close[3] and b3 >= mult * nz(a, 1.0)
+    isBear = s1 or s3
+    bs  = s3 ? 4 : 2
+    zTop    = float(na)
+    zBot    = float(na)
+    leftOff = bs
+    if isBear and not na(high[bs]) and not na(open[bs])
+        zTop    := high[bs]
+        zBot    := math.min(open[bs], close[bs])
+        for k = bs + 1 to bs + bLook
+            if na(open[k]) or na(close[k]) or na(high[k])
+                break
+            if math.abs(open[k] - close[k]) > nMax * nz(a, 1.0)
+                break
+            zTop    := math.max(zTop, high[k])
+            zBot    := math.min(zBot, math.min(open[k], close[k]))
+            leftOff := k
+    // Return time of leftmost base bar so chart can compute correct left edge
+    leftTime = isBear and not na(zTop) ? time[leftOff] : int(na)
+    [isBear, zTop, zBot, leftTime]
 
-curBody  = math.abs(open - close)
-curRange = high - low
+f_demandZone(mult, bRatio, nMax, bLook, al) =>
+    a   = ta.atr(al)[1]
+    b1  = close[1] - open[1]
+    r1  = high[1] - low[1]
+    s1  = not na(a) and close[1] > open[1] and r1 > 0.0 and b1 >= mult * a and b1 / r1 >= bRatio
+    b3  = (close[1]>open[1] ? close[1]-open[1] : 0.0) + (close[2]>open[2] ? close[2]-open[2] : 0.0) + (close[3]>open[3] ? close[3]-open[3] : 0.0)
+    s3  = close[1]>open[1] and close[2]>open[2] and close[3]>open[3] and b3 >= mult * nz(a, 1.0)
+    isBull = s1 or s3
+    bs  = s3 ? 4 : 2
+    zBot    = float(na)
+    zTop    = float(na)
+    leftOff = bs
+    if isBull and not na(low[bs]) and not na(open[bs])
+        zBot    := low[bs]
+        zTop    := math.max(open[bs], close[bs])
+        for k = bs + 1 to bs + bLook
+            if na(open[k]) or na(close[k]) or na(low[k])
+                break
+            if math.abs(open[k] - close[k]) > nMax * nz(a, 1.0)
+                break
+            zBot    := math.min(zBot, low[k])
+            zTop    := math.max(zTop, math.max(open[k], close[k]))
+            leftOff := k
+    leftTime = isBull and not na(zBot) ? time[leftOff] : int(na)
+    [isBull, zBot, zTop, leftTime]
 
-// Single explosive candle: large body, body dominates the range
-singleBear = open > close and curRange > 0.0 and curBody >= minMult * atr and curBody / curRange >= bodyRatio
-singleBull = close > open and curRange > 0.0 and curBody >= minMult * atr and curBody / curRange >= bodyRatio
+// ── FETCH ZONE DATA FROM SOURCE TIMEFRAME ─────────────────────────────────────
+[htf_sBear, htf_sTop, htf_sBot, htf_sTime] = request.security(syminfo.tickerid, zoneTF, f_supplyZone(minMult, bodyRatio, neutralMax, baseLook, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
+[htf_sBull, htf_dBot, htf_dTop, htf_dTime] = request.security(syminfo.tickerid, zoneTF, f_demandZone(minMult, bodyRatio, neutralMax, baseLook, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
+htf_bidx = request.security(syminfo.tickerid, zoneTF, bar_index, barmerge.gaps_off, barmerge.lookahead_off)
 
-// 3 consecutive candles all in the same direction, combined body >= threshold
-bear3body = (open > close ? open - close : 0.0) + (open[1] > close[1] ? open[1] - close[1] : 0.0) + (open[2] > close[2] ? open[2] - close[2] : 0.0)
-bull3body = (close > open ? close - open : 0.0) + (close[1] > open[1] ? close[1] - open[1] : 0.0) + (close[2] > open[2] ? close[2] - open[2] : 0.0)
-threeBear = open > close and open[1] > close[1] and open[2] > close[2] and bear3body >= minMult * atr
-threeBull = close > open and close[1] > open[1] and close[2] > open[2] and bull3body >= minMult * atr
+// Fire zone drawing once per new source-TF bar
+is_new_htf = ta.change(htf_bidx) > 0
 
-isBigBear = barstate.isconfirmed and not na(atr) and (singleBear or threeBear)
-isBigBull = barstate.isconfirmed and not na(atr) and (singleBull or threeBull)
-
-// Base starts immediately after the explosive sequence ends
-// 3-bar move → base at bar[3]; single bar → base at bar[1]
-bearBase = threeBear ? 3 : 1
-bullBase = threeBull ? 3 : 1
+// Convert a zone-TF bar timestamp to a chart bar index
+// (time on chart is ms since epoch; each chart bar covers timeframe.in_seconds()*1000 ms)
+chartMs = timeframe.in_seconds() * 1000
+f_timeToBar(t) => na(t) ? bar_index : math.max(0, bar_index - math.round((time - t) / chartMs))
 
 // ── ZONE STORAGE ──────────────────────────────────────────────────────────────
 var box[]  supplyBoxes = array.new_box()
@@ -89,59 +108,30 @@ var bool[] supplyHit   = array.new_bool()
 var box[]  demandBoxes = array.new_box()
 var bool[] demandHit   = array.new_bool()
 
-// ── SUPPLY ZONE ───────────────────────────────────────────────────────────────
-// Base scan: include neutral candles (small body) BEFORE the explosive move.
-// Stop the moment any candle body exceeds neutralMax x ATR — that candle is not neutral.
-// Zone: TOP = highest wick of base, BOTTOM = lowest body-bottom of base
-if isBigBear
-    bs      = bearBase
-    zTop    = na(high[bs]) ? float(na) : high[bs]
-    zBot    = na(open[bs]) or na(close[bs]) ? float(na) : math.min(open[bs], close[bs])
-    leftBar = bar_index - bs
-    for k = bs + 1 to bs + baseLook
-        if na(open[k]) or na(close[k]) or na(high[k])
-            break
-        if math.abs(open[k] - close[k]) > neutralMax * nz(atr[k], atr)
-            break
-        zTop    := math.max(zTop, high[k])
-        zBot    := math.min(zBot, math.min(open[k], close[k]))
-        leftBar := bar_index - k
-    if not na(zTop) and not na(zBot) and zTop > zBot
-        b = box.new(leftBar, zTop, bar_index, zBot, border_color=supplyBorder, bgcolor=supplyFill, border_width=2, extend=extend.right)
-        array.push(supplyBoxes, b)
-        array.push(supplyHit, false)
-        if array.size(supplyBoxes) > maxZones
-            oldest = array.shift(supplyBoxes)
-            if not array.shift(supplyHit)
-                box.delete(oldest)
+// ── DRAW SUPPLY ZONE ──────────────────────────────────────────────────────────
+if is_new_htf and htf_sBear and not na(htf_sTop) and not na(htf_sBot) and htf_sTop > htf_sBot
+    leftBar = f_timeToBar(htf_sTime)
+    b = box.new(leftBar, htf_sTop, bar_index, htf_sBot, border_color=supplyBorder, bgcolor=supplyFill, border_width=2, extend=extend.right)
+    array.push(supplyBoxes, b)
+    array.push(supplyHit, false)
+    if array.size(supplyBoxes) > maxZones
+        oldest = array.shift(supplyBoxes)
+        if not array.shift(supplyHit)
+            box.delete(oldest)
 
-// ── DEMAND ZONE ───────────────────────────────────────────────────────────────
-// Zone: TOP = highest body-top of base, BOTTOM = lowest wick of base
-if isBigBull
-    bs      = bullBase
-    zBot    = na(low[bs]) ? float(na) : low[bs]
-    zTop    = na(open[bs]) or na(close[bs]) ? float(na) : math.max(open[bs], close[bs])
-    leftBar = bar_index - bs
-    for k = bs + 1 to bs + baseLook
-        if na(open[k]) or na(close[k]) or na(low[k])
-            break
-        if math.abs(open[k] - close[k]) > neutralMax * nz(atr[k], atr)
-            break
-        zBot    := math.min(zBot, low[k])
-        zTop    := math.max(zTop, math.max(open[k], close[k]))
-        leftBar := bar_index - k
-    if not na(zBot) and not na(zTop) and zTop > zBot
-        b = box.new(leftBar, zTop, bar_index, zBot, border_color=demandBorder, bgcolor=demandFill, border_width=2, extend=extend.right)
-        array.push(demandBoxes, b)
-        array.push(demandHit, false)
-        if array.size(demandBoxes) > maxZones
-            oldest = array.shift(demandBoxes)
-            if not array.shift(demandHit)
-                box.delete(oldest)
+// ── DRAW DEMAND ZONE ──────────────────────────────────────────────────────────
+if is_new_htf and htf_sBull and not na(htf_dBot) and not na(htf_dTop) and htf_dTop > htf_dBot
+    leftBar = f_timeToBar(htf_dTime)
+    b = box.new(leftBar, htf_dTop, bar_index, htf_dBot, border_color=demandBorder, bgcolor=demandFill, border_width=2, extend=extend.right)
+    array.push(demandBoxes, b)
+    array.push(demandHit, false)
+    if array.size(demandBoxes) > maxZones
+        oldest = array.shift(demandBoxes)
+        if not array.shift(demandHit)
+            box.delete(oldest)
 
 // ── MITIGATION ────────────────────────────────────────────────────────────────
-// Zone is mitigated when price CLOSES inside it — NOT just a wick or touch.
-// (Elder Santis: "it has to be a CLOSE through on the 30min — wick is not invalidation")
+// Zone is mitigated when price CLOSES inside it on the current chart (not just a wick).
 if array.size(supplyBoxes) > 0
     for i = 0 to array.size(supplyBoxes) - 1
         if not array.get(supplyHit, i)
