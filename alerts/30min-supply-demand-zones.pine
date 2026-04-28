@@ -38,6 +38,9 @@ demandBorder = input.color(color.new(#004400, 20), "Demand border")
 // Multiplying by htfToChart on the chart side gives a stable bar_index left edge
 // that does not drift when the chart is scrolled or zoomed.
 
+// SUPPLY ZONE: big bullish move INTO zone → neutral base → big bearish DROP out
+// leftOff+1 is the bar immediately before the leftmost base candle — that is
+// where the bullish rally that brought price into the zone must have occurred.
 f_supplyZone(mult, bRatio, nMax, bLook, al) =>
     a       = ta.atr(al)[1]
     b1      = open[1] - close[1]
@@ -61,9 +64,15 @@ f_supplyZone(mult, bRatio, nMax, bLook, al) =>
             zTop    := math.max(zTop, high[k])
             zBot    := math.min(zBot, math.min(open[k], close[k]))
             leftOff := k
-    valid = not na(zTop) and not na(zBot) and zTop > zBot
+    // Verify a big BULLISH move brought price INTO the zone before the base
+    preIdx   = leftOff + 1
+    preInto  = not na(open[preIdx]) and not na(close[preIdx]) and close[preIdx] > open[preIdx] and (close[preIdx] - open[preIdx]) >= mult * a * 0.5
+    valid = not na(zTop) and not na(zBot) and zTop > zBot and preInto
     [valid, zTop, zBot, valid ? leftOff : 0]
 
+// DEMAND ZONE: big bearish DROP into zone → neutral base → big bullish LAUNCH out
+// leftOff+1 is the bar immediately before the leftmost base candle — that is
+// where the bearish drop that brought price into the zone must have occurred.
 f_demandZone(mult, bRatio, nMax, bLook, al) =>
     a       = ta.atr(al)[1]
     b1      = close[1] - open[1]
@@ -87,7 +96,10 @@ f_demandZone(mult, bRatio, nMax, bLook, al) =>
             zTop    := math.max(zTop, math.max(open[k], close[k]))
             zBot    := math.min(zBot, low[k])
             leftOff := k
-    valid = not na(zTop) and not na(zBot) and zTop > zBot
+    // Verify a big BEARISH drop brought price INTO the zone before the base
+    preIdx   = leftOff + 1
+    preInto  = not na(open[preIdx]) and not na(close[preIdx]) and open[preIdx] > close[preIdx] and (open[preIdx] - close[preIdx]) >= mult * a * 0.5
+    valid = not na(zTop) and not na(zBot) and zTop > zBot and preInto
     [valid, zTop, zBot, valid ? leftOff : 0]
 
 // ── FETCH ZONE DATA FROM SOURCE TF ───────────────────────────────────────────
