@@ -61,50 +61,59 @@ var box[]  demandBoxes = array.new_box()
 var bool[] demandHit   = array.new_bool()
 
 // ── SUPPLY ZONE ───────────────────────────────────────────────────────────────
+// The FIRST base candle (bar[bs]) must itself be neutral — if it isn't,
+// the explosive move is just a continuation inside a trend, not a new move
+// off a consolidation. Skip the zone entirely in that case.
 if isBigBear
-    bs   = bearBase
-    zTop = na(high[bs]) ? float(na) : high[bs]
-    zBot = na(open[bs]) or na(close[bs]) ? float(na) : math.min(open[bs], close[bs])
-    leftBar = bar_index - bs
-    for k = bs + 1 to bs + baseLook
-        if na(open[k]) or na(close[k]) or na(high[k])
-            break
-        if math.abs(open[k] - close[k]) > neutralMax * nz(atr[k], atr)
-            break
-        zTop    := math.max(zTop, high[k])
-        zBot    := math.min(zBot, math.min(open[k], close[k]))
-        leftBar := bar_index - k
-    if not na(zTop) and not na(zBot) and zTop > zBot
-        b = box.new(leftBar, zTop, bar_index, zBot, border_color=supplyBorder, bgcolor=supplyFill, border_width=2, extend=extend.right)
-        array.push(supplyBoxes, b)
-        array.push(supplyHit, false)
-        if array.size(supplyBoxes) > maxZones
-            oldest = array.shift(supplyBoxes)
-            if not array.shift(supplyHit)
-                box.delete(oldest)
+    bs       = bearBase
+    baseAtr0 = nz(atr[bs], atr)
+    firstNeutral = not na(open[bs]) and not na(close[bs]) and math.abs(open[bs] - close[bs]) <= neutralMax * baseAtr0
+    if firstNeutral
+        zTop    = high[bs]
+        zBot    = math.min(open[bs], close[bs])
+        leftBar = bar_index - bs
+        for k = bs + 1 to bs + baseLook
+            if na(open[k]) or na(close[k]) or na(high[k])
+                break
+            if math.abs(open[k] - close[k]) > neutralMax * nz(atr[k], atr)
+                break
+            zTop    := math.max(zTop, high[k])
+            zBot    := math.min(zBot, math.min(open[k], close[k]))
+            leftBar := bar_index - k
+        if zTop > zBot
+            b = box.new(leftBar, zTop, bar_index, zBot, border_color=supplyBorder, bgcolor=supplyFill, border_width=2, extend=extend.right)
+            array.push(supplyBoxes, b)
+            array.push(supplyHit, false)
+            if array.size(supplyBoxes) > maxZones
+                oldest = array.shift(supplyBoxes)
+                if not array.shift(supplyHit)
+                    box.delete(oldest)
 
 // ── DEMAND ZONE ───────────────────────────────────────────────────────────────
 if isBigBull
-    bs   = bullBase
-    zBot = na(low[bs]) ? float(na) : low[bs]
-    zTop = na(open[bs]) or na(close[bs]) ? float(na) : math.max(open[bs], close[bs])
-    leftBar = bar_index - bs
-    for k = bs + 1 to bs + baseLook
-        if na(open[k]) or na(close[k]) or na(low[k])
-            break
-        if math.abs(open[k] - close[k]) > neutralMax * nz(atr[k], atr)
-            break
-        zBot    := math.min(zBot, low[k])
-        zTop    := math.max(zTop, math.max(open[k], close[k]))
-        leftBar := bar_index - k
-    if not na(zBot) and not na(zTop) and zTop > zBot
-        b = box.new(leftBar, zTop, bar_index, zBot, border_color=demandBorder, bgcolor=demandFill, border_width=2, extend=extend.right)
-        array.push(demandBoxes, b)
-        array.push(demandHit, false)
-        if array.size(demandBoxes) > maxZones
-            oldest = array.shift(demandBoxes)
-            if not array.shift(demandHit)
-                box.delete(oldest)
+    bs       = bullBase
+    baseAtr0 = nz(atr[bs], atr)
+    firstNeutral = not na(open[bs]) and not na(close[bs]) and math.abs(open[bs] - close[bs]) <= neutralMax * baseAtr0
+    if firstNeutral
+        zBot    = low[bs]
+        zTop    = math.max(open[bs], close[bs])
+        leftBar = bar_index - bs
+        for k = bs + 1 to bs + baseLook
+            if na(open[k]) or na(close[k]) or na(low[k])
+                break
+            if math.abs(open[k] - close[k]) > neutralMax * nz(atr[k], atr)
+                break
+            zBot    := math.min(zBot, low[k])
+            zTop    := math.max(zTop, math.max(open[k], close[k]))
+            leftBar := bar_index - k
+        if zTop > zBot
+            b = box.new(leftBar, zTop, bar_index, zBot, border_color=demandBorder, bgcolor=demandFill, border_width=2, extend=extend.right)
+            array.push(demandBoxes, b)
+            array.push(demandHit, false)
+            if array.size(demandBoxes) > maxZones
+                oldest = array.shift(demandBoxes)
+                if not array.shift(demandHit)
+                    box.delete(oldest)
 
 // ── MITIGATION ────────────────────────────────────────────────────────────────
 if array.size(supplyBoxes) > 0
