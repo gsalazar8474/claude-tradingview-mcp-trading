@@ -1,13 +1,33 @@
 //@version=5
 // Elder Santis - Supply & Demand Zones (Cascading TF)
+// Verified against 8 scraped YouTube transcripts + rules.json (2026-04-29)
 //
-// STEP 1: Detect explosive move on the primary (4H) timeframe.
-// STEP 2: Cascade down through enabled sub-timeframes looking for the cleanest
-//         neutral base before that move. Starts coarse (4H), goes finer.
-//         First timeframe with a valid base wins as the starting zone.
-// STEP 3: Each subsequent enabled timeframe that overlaps >= 50% of the current
-//         best zone tightens it further (intersection of price ranges).
-// Zones appear on every chart at the final price levels.
+// ── SUPPLY ZONE ───────────────────────────────────────────────────────────────
+//   Trigger:  single massive red candle (body >= minMult×ATR, body/range >= bodyRatio)
+//             OR 3 consecutive red candles each individually body/range>=0.5 & body>=0.3×ATR
+//             Combined body >= minMult×ATR
+//   Base:     neutral candle(s) IMMEDIATELY BEFORE the explosive move
+//             Neutral = body <= neutralMax×ATR  (small body, big wicks)
+//   Top:      highest WICK of all base candles
+//   Bottom:   lowest BODY-BOTTOM (min of open/close) of all base candles
+//   Remove:   ONLY when candle CLOSES above the zone top
+//
+// ── DEMAND ZONE ───────────────────────────────────────────────────────────────
+//   Trigger:  single massive green candle OR 3 consecutive momentum green candles
+//   Base:     neutral candle(s) IMMEDIATELY BEFORE the explosive move
+//   Top:      highest BODY-TOP (max of open/close) of all base candles
+//   Bottom:   lowest WICK of all base candles
+//   Remove:   ONLY when candle CLOSES below the zone bottom
+//
+// ── REFINEMENT (cascade) ──────────────────────────────────────────────────────
+//   Step 1: detect on 4H (coarsest zone). If invalid, fall through to 2H→1H→30min→15min.
+//   Step 2: each finer TF that overlaps the current zone >= overlapPc tightens it
+//           (intersection of price ranges — zone gets more precise at each level).
+//   Result: all timeframes show the same zone at those price levels.
+//
+// ── PROXIMITY ─────────────────────────────────────────────────────────────────
+//   Only zones within proximityATR × ATR of current price are rendered.
+//   All zones remain tracked; visibility toggled by bgcolor/border transparency.
 
 indicator("Elder Santis - Supply & Demand Zones", overlay=true, max_bars_back=500, max_boxes_count=500)
 
