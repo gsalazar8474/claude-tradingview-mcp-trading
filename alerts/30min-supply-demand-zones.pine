@@ -22,9 +22,11 @@ bool   en15m     = input.bool(false, "Enable 15min refinement")
 int    atrLen    = input.int(14,    "ATR Length",                      minval=1,  maxval=50)
 float  minMult   = input.float(1.5, "Min Impulse Body (x ATR)",        minval=0.5,maxval=10.0,step=0.25)
 float  bodyRatio = input.float(0.4, "Min body / range ratio",          minval=0.2,maxval=1.0, step=0.05)
-float  neutralMx = input.float(0.5, "Base candle body max (x ATR)",    minval=0.1,maxval=2.0, step=0.1)
-int    baseLook  = input.int(5,     "Max base candles to scan",        minval=1,  maxval=10)
-float  baseRange = input.float(4.0, "Max consolidation range (x ATR)", minval=0.5,maxval=8.0, step=0.25)
+float  neutralMx   = input.float(0.5, "Base candle body max (x ATR)",            minval=0.1,maxval=2.0, step=0.1)
+float  neutralMx15 = input.float(0.6, "Base candle body max — 15min only (x ATR)", minval=0.1,maxval=2.0, step=0.1)
+float  consolidRng = input.float(2.0, "30min/15min: max total wick range (x ATR)", minval=0.5,maxval=8.0, step=0.25)
+int    baseLook    = input.int(5,     "Max base candles to scan",                  minval=1,  maxval=10)
+float  baseRange   = input.float(4.0, "Max consolidation range (x ATR)",           minval=0.5,maxval=8.0, step=0.25)
 float  overlapPc = input.float(0.5, "Min overlap to refine (0-1)",     minval=0.1,maxval=1.0, step=0.05)
 int    maxZones  = input.int(15,    "Max zones per side",              minval=1,  maxval=50)
 bool   showMit   = input.bool(false, "Show mitigated zones")
@@ -48,7 +50,13 @@ color demandBorder = input.color(color.new(#004400, 20), "Demand border")
 //   Single candle: body>=minMult*ATR AND body/range>=bodyRatio.
 //   3-bar run: above per-candle check PLUS combined body>=minMult*ATR.
 
-f_supply(float mult, float bRatio, float nMax, int bLook, float bRng, int al) =>
+// rMax > 0 enables the total-wick-range alternative:
+//   a base candle is accepted if its individual body <= nMax*ATR  (per-candle check)
+//   OR the accumulated wick-to-wick range across all base candles <= rMax*ATR.
+//   This lets 30min/15min find consolidations with slightly choppier candles as long
+//   as the overall area is still tight.
+
+f_supply(float mult, float bRatio, float nMax, float rMax, int bLook, float bRng, int al) =>
     float a       = ta.atr(al)[1]
     float zTop    = float(na)
     float zBot    = float(na)
@@ -67,24 +75,36 @@ f_supply(float mult, float bRatio, float nMax, int bLook, float bRng, int al) =>
         bool  s3  = c1 and c2 and c3 and b3 >= mult * a
         int   bs  = s3 ? 4 : 2
         if (s1 or s3) and not na(open[bs]) and not na(close[bs])
-            if math.abs(open[bs] - close[bs]) <= nMax * a
-                zTop    := high[bs]
-                zBot    := math.min(open[bs], close[bs])
-                leftOff := bs
+            // First base candle: accept if body small OR total wick range small
+            float firstBody  = math.abs(open[bs] - close[bs])
+            float firstRange = high[bs] - low[bs]
+            bool  firstOk    = firstBody <= nMax * a or (rMax > 0.0 and firstRange <= rMax * a)
+            if firstOk
+                zTop         := high[bs]
+                zBot         := math.min(open[bs], close[bs])
+                float allLow := low[bs]   // track min wick for total-range check
+                leftOff      := bs
                 for k = bs + 1 to bs + bLook
                     if na(open[k]) or na(close[k]) or na(high[k])
                         break
-                    if math.abs(open[k] - close[k]) > nMax * a
+                    float newTop      = math.max(zTop, high[k])
+                    float newBot      = math.min(zBot, math.min(open[k], close[k]))
+                    float newAllLow   = math.min(allLow, low[k])
+                    float totalWkRng  = newTop - newAllLow   // wick-to-wick across whole base
+                    bool  bodyOk      = math.abs(open[k] - close[k]) <= nMax * a
+                    bool  rangeOk     = rMax > 0.0 and totalWkRng <= rMax * a
+                    if not bodyOk and not rangeOk
                         break
-                    if (math.max(zTop, high[k]) - math.min(zBot, math.min(open[k], close[k]))) > bRng * a
+                    if (newTop - newBot) > bRng * a
                         break
-                    zTop    := math.max(zTop, high[k])
-                    zBot    := math.min(zBot, math.min(open[k], close[k]))
+                    zTop    := newTop
+                    zBot    := newBot
+                    allLow  := newAllLow
                     leftOff := k
                 valid := zTop > zBot
     [valid, zTop, zBot, leftOff]
 
-f_demand(float mult, float bRatio, float nMax, int bLook, float bRng, int al) =>
+f_demand(float mult, float bRatio, float nMax, float rMax, int bLook, float bRng, int al) =>
     float a       = ta.atr(al)[1]
     float zTop    = float(na)
     float zBot    = float(na)
@@ -103,39 +123,54 @@ f_demand(float mult, float bRatio, float nMax, int bLook, float bRng, int al) =>
         bool  s3  = c1 and c2 and c3 and b3 >= mult * a
         int   bs  = s3 ? 4 : 2
         if (s1 or s3) and not na(open[bs]) and not na(close[bs])
-            if math.abs(open[bs] - close[bs]) <= nMax * a
-                zTop    := math.max(open[bs], close[bs])
-                zBot    := low[bs]
-                leftOff := bs
+            // First base candle: accept if body small OR total wick range small
+            float firstBody  = math.abs(open[bs] - close[bs])
+            float firstRange = high[bs] - low[bs]
+            bool  firstOk    = firstBody <= nMax * a or (rMax > 0.0 and firstRange <= rMax * a)
+            if firstOk
+                zTop          := math.max(open[bs], close[bs])
+                zBot          := low[bs]
+                float allHigh := high[bs]   // track max wick for total-range check
+                leftOff       := bs
                 for k = bs + 1 to bs + bLook
                     if na(open[k]) or na(close[k]) or na(low[k])
                         break
-                    if math.abs(open[k] - close[k]) > nMax * a
+                    float newTop      = math.max(zTop, math.max(open[k], close[k]))
+                    float newBot      = math.min(zBot, low[k])
+                    float newAllHigh  = math.max(allHigh, high[k])
+                    float totalWkRng  = newAllHigh - newBot   // wick-to-wick across whole base
+                    bool  bodyOk      = math.abs(open[k] - close[k]) <= nMax * a
+                    bool  rangeOk     = rMax > 0.0 and totalWkRng <= rMax * a
+                    if not bodyOk and not rangeOk
                         break
-                    if (math.max(zTop, math.max(open[k],close[k])) - math.min(zBot, low[k])) > bRng * a
+                    if (newTop - newBot) > bRng * a
                         break
-                    zTop    := math.max(zTop, math.max(open[k], close[k]))
-                    zBot    := math.min(zBot, low[k])
+                    zTop    := newTop
+                    zBot    := newBot
+                    allHigh := newAllHigh
                     leftOff := k
                 valid := zTop > zBot
     [valid, zTop, zBot, leftOff]
 
 // ── FETCH ALL TIMEFRAMES ──────────────────────────────────────────────────────
+// rMax=0.0 → per-candle body filter only (4H, 2H, 1H)
+// rMax=consolidRng → also accept base when total wick-to-wick range <= consolidRng*ATR (30min, 15min)
+// 15min also uses the more lenient neutralMx15 per-candle body threshold
 // Primary: 4H
-[p_sv, p_sT, p_sB, p_sO] = request.security(syminfo.tickerid, zoneTF, f_supply(minMult, bodyRatio, neutralMx, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
-[p_dv, p_dT, p_dB, p_dO] = request.security(syminfo.tickerid, zoneTF, f_demand(minMult, bodyRatio, neutralMx, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
+[p_sv, p_sT, p_sB, p_sO] = request.security(syminfo.tickerid, zoneTF, f_supply(minMult, bodyRatio, neutralMx, 0.0, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
+[p_dv, p_dT, p_dB, p_dO] = request.security(syminfo.tickerid, zoneTF, f_demand(minMult, bodyRatio, neutralMx, 0.0, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
 // 2H
-[h2_sv, h2_sT, h2_sB, h2_sO] = request.security(syminfo.tickerid, "120", f_supply(minMult, bodyRatio, neutralMx, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
-[h2_dv, h2_dT, h2_dB, h2_dO] = request.security(syminfo.tickerid, "120", f_demand(minMult, bodyRatio, neutralMx, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
+[h2_sv, h2_sT, h2_sB, h2_sO] = request.security(syminfo.tickerid, "120", f_supply(minMult, bodyRatio, neutralMx, 0.0, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
+[h2_dv, h2_dT, h2_dB, h2_dO] = request.security(syminfo.tickerid, "120", f_demand(minMult, bodyRatio, neutralMx, 0.0, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
 // 1H
-[h1_sv, h1_sT, h1_sB, h1_sO] = request.security(syminfo.tickerid, "60", f_supply(minMult, bodyRatio, neutralMx, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
-[h1_dv, h1_dT, h1_dB, h1_dO] = request.security(syminfo.tickerid, "60", f_demand(minMult, bodyRatio, neutralMx, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
-// 30min
-[m30_sv, m30_sT, m30_sB, m30_sO] = request.security(syminfo.tickerid, "30", f_supply(minMult, bodyRatio, neutralMx, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
-[m30_dv, m30_dT, m30_dB, m30_dO] = request.security(syminfo.tickerid, "30", f_demand(minMult, bodyRatio, neutralMx, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
-// 15min
-[m15_sv, m15_sT, m15_sB, m15_sO] = request.security(syminfo.tickerid, "15", f_supply(minMult, bodyRatio, neutralMx, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
-[m15_dv, m15_dT, m15_dB, m15_dO] = request.security(syminfo.tickerid, "15", f_demand(minMult, bodyRatio, neutralMx, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
+[h1_sv, h1_sT, h1_sB, h1_sO] = request.security(syminfo.tickerid, "60", f_supply(minMult, bodyRatio, neutralMx, 0.0, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
+[h1_dv, h1_dT, h1_dB, h1_dO] = request.security(syminfo.tickerid, "60", f_demand(minMult, bodyRatio, neutralMx, 0.0, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
+// 30min: range-based fallback enabled
+[m30_sv, m30_sT, m30_sB, m30_sO] = request.security(syminfo.tickerid, "30", f_supply(minMult, bodyRatio, neutralMx, consolidRng, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
+[m30_dv, m30_dT, m30_dB, m30_dO] = request.security(syminfo.tickerid, "30", f_demand(minMult, bodyRatio, neutralMx, consolidRng, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
+// 15min: range-based fallback + more lenient per-candle body threshold
+[m15_sv, m15_sT, m15_sB, m15_sO] = request.security(syminfo.tickerid, "15", f_supply(minMult, bodyRatio, neutralMx15, consolidRng, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
+[m15_dv, m15_dT, m15_dB, m15_dO] = request.security(syminfo.tickerid, "15", f_demand(minMult, bodyRatio, neutralMx15, consolidRng, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
 
 // Primary bar-change and chart-scale factor
 int   htf_bidx   = request.security(syminfo.tickerid, zoneTF, bar_index, barmerge.gaps_off, barmerge.lookahead_off)
