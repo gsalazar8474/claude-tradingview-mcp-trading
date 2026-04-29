@@ -304,16 +304,15 @@ if is_new_htf
                     box.delete(oldest)
 
 // ── MITIGATION ────────────────────────────────────────────────────────────────
-// 0.1 x ATR buffer prevents tiny wicks from prematurely removing zones.
-// Supply removed when close > zone top + buffer.
-// Demand removed when close < zone bottom - buffer.
-float mitBuf = ta.atr(atrLen) * 0.1
+// Supply removed ONLY when candle CLOSES above the zone top.
+// Demand removed ONLY when candle CLOSES below the zone bottom.
+// Closing inside the zone does NOT remove it. Wicks do NOT remove it.
 
 if barstate.isconfirmed and array.size(supplyBoxes) > 0
     for i = 0 to array.size(supplyBoxes) - 1
         if not array.get(supplyHit, i)
             box b = array.get(supplyBoxes, i)
-            if close > box.get_top(b) + mitBuf
+            if close > box.get_top(b)
                 array.set(supplyHit, i, true)
                 box.set_extend(b, extend.none)
                 box.set_right(b, bar_index)
@@ -327,7 +326,7 @@ if barstate.isconfirmed and array.size(demandBoxes) > 0
     for i = 0 to array.size(demandBoxes) - 1
         if not array.get(demandHit, i)
             box b = array.get(demandBoxes, i)
-            if close < box.get_bottom(b) - mitBuf
+            if close < box.get_bottom(b)
                 array.set(demandHit, i, true)
                 box.set_extend(b, extend.none)
                 box.set_right(b, bar_index)
