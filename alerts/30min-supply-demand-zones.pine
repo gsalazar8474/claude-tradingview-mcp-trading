@@ -1,56 +1,20 @@
 //@version=5
-// Elder Santis - Supply & Demand Zones (Cascading TF)
-// Verified against 8 scraped YouTube transcripts + rules.json (2026-04-29)
-//
-// ── SUPPLY ZONE ───────────────────────────────────────────────────────────────
-//   Trigger:  single massive red candle (body >= minMult×ATR, body/range >= bodyRatio)
-//             OR 3 consecutive red candles each individually body/range>=0.5 & body>=0.3×ATR
-//             Combined body >= minMult×ATR
-//   Base:     neutral candle(s) IMMEDIATELY BEFORE the explosive move
-//             Neutral = body <= neutralMax×ATR  (small body, big wicks)
-//   Top:      highest WICK of all base candles
-//   Bottom:   lowest BODY-BOTTOM (min of open/close) of all base candles
-//   Remove:   ONLY when candle CLOSES above the zone top
-//
-// ── DEMAND ZONE ───────────────────────────────────────────────────────────────
-//   Trigger:  single massive green candle OR 3 consecutive momentum green candles
-//   Base:     neutral candle(s) IMMEDIATELY BEFORE the explosive move
-//   Top:      highest BODY-TOP (max of open/close) of all base candles
-//   Bottom:   lowest WICK of all base candles
-//   Remove:   ONLY when candle CLOSES below the zone bottom
-//
-// ── REFINEMENT (cascade) ──────────────────────────────────────────────────────
-//   Step 1: detect on 4H (coarsest zone). If invalid, fall through to 2H→1H→30min→15min.
-//   Step 2: each finer TF that overlaps the current zone >= overlapPc tightens it
-//           (intersection of price ranges — zone gets more precise at each level).
-//   Result: all timeframes show the same zone at those price levels.
-//
-// ── PROXIMITY ─────────────────────────────────────────────────────────────────
-//   Only zones within proximityATR × ATR of current price are rendered.
-//   All zones remain tracked; visibility toggled by bgcolor/border transparency.
-
-indicator("Elder Santis - Supply & Demand Zones", overlay=true, max_bars_back=500, max_boxes_count=500)
+indicator("Elder Santis - Supply & Demand Zones 7", overlay=true, max_bars_back=500, max_boxes_count=500)
 
 // ── INPUTS ────────────────────────────────────────────────────────────────────
-string zoneTF    = input.timeframe("240", "Primary Zone Timeframe (4H)")
+string zoneTF     = input.timeframe("240",  "Zone Source Timeframe (240=4H, 60=1H, 30=30min)")
+string refineTF   = input.timeframe("60",   "Refinement Timeframe")
+bool   useRefine  = input.bool(true,        "Enable Refinement Timeframe")
 
-bool   en2h      = input.bool(true,  "Enable 2H refinement")
-bool   en1h      = input.bool(true,  "Enable 1H refinement")
-bool   en30m     = input.bool(true,  "Enable 30min refinement")
-bool   en15m     = input.bool(false, "Enable 15min refinement")
-
-int    atrLen    = input.int(14,    "ATR Length",                      minval=1,  maxval=50)
-float  minMult   = input.float(1.5, "Min Impulse Body (x ATR)",        minval=0.5,maxval=10.0,step=0.25)
-float  bodyRatio = input.float(0.4, "Min body / range ratio",          minval=0.2,maxval=1.0, step=0.05)
-float  neutralMx   = input.float(0.6, "Base candle body max (x ATR)",               minval=0.1,maxval=2.0, step=0.1)
-float  neutralMx15 = input.float(0.6, "Base candle body max — 15min (x ATR)",       minval=0.1,maxval=2.0, step=0.1)
-int    baseLook    = input.int(10,    "Max base candles to scan",                   minval=1,  maxval=20)
-float  baseRange   = input.float(2.0, "Base total wick range max (x ATR)",          minval=0.5,maxval=8.0, step=0.25)
-float  overlapPc = input.float(0.5, "Min overlap to refine (0-1)",     minval=0.1,maxval=1.0, step=0.05)
-int    maxZones     = input.int(15,    "Max zones per side",                           minval=1,  maxval=50)
-float  proximityATR = input.float(10.0, "Show zones within (x ATR of current price)", minval=1.0,maxval=50.0,step=1.0)
-bool   showMit      = input.bool(false, "Show mitigated zones")
-bool   showLabel    = input.bool(true,  "Show zone label (S / D)")
+int    atrLen     = input.int(14,    "ATR Length",                      minval=1,  maxval=50)
+float  minMult    = input.float(1.5, "Min Impulse Body (x ATR)",        minval=0.5,maxval=10.0,step=0.25)
+float  bodyRatio  = input.float(0.4, "Min body / range ratio",          minval=0.2,maxval=1.0, step=0.05)
+float  neutralMax = input.float(0.5, "Base candle body max (x ATR)",    minval=0.1,maxval=2.0, step=0.1)
+int    baseLook   = input.int(5,     "Max base candles to scan",        minval=1,  maxval=10)
+float  baseRange  = input.float(4.0, "Max consolidation range (x ATR)", minval=0.5,maxval=8.0, step=0.25)
+int    maxZones   = input.int(15,    "Max zones per side",              minval=1,  maxval=50)
+bool   showMit    = input.bool(false, "Show mitigated zones")
+bool   showLabel  = input.bool(true,  "Show zone label (S / D)")
 
 color supplyFill   = input.color(color.new(#5C0000, 60), "Supply fill")
 color demandFill   = input.color(color.new(#003300, 60), "Demand fill")
@@ -58,280 +22,181 @@ color mitFill      = input.color(color.new(color.gray, 88), "Mitigated fill")
 color supplyBorder = input.color(color.new(#8B0000, 20), "Supply border")
 color demandBorder = input.color(color.new(#004400, 20), "Demand border")
 
-// ── ZONE DETECTION FUNCTION ───────────────────────────────────────────────────
-// Runs inside request.security() in the target TF context.
-// Returns [valid, zTop, zBot, leftOff].
-//
-// SUPPLY:  top = highest WICK of base,     bottom = lowest BODY-BOTTOM of base
-// DEMAND:  top = highest BODY-TOP of base, bottom = lowest WICK of base
-//
-// Impulse detection (stricter 3-candle):
-//   Each candle in 3-bar run must individually meet body/range>=0.5 AND body>=0.3xATR.
-//   Single candle: body>=minMult*ATR AND body/range>=bodyRatio.
-//   3-bar run: above per-candle check PLUS combined body>=minMult*ATR.
+// ── ZONE DETECTION FUNCTIONS ──────────────────────────────────────────────────
+// Improvement 1: Stricter 3-candle sequence — each candle must individually meet
+//   body/range >= 0.5 AND body >= 0.3 x ATR, plus combined body >= minMult x ATR.
+// Improvement 2: Box edges correctly use wicks for outer bounds and bodies for inner.
+//   Supply  → top = max wick,     bottom = min body-bottom
+//   Demand  → top = max body-top, bottom = min wick
 
-// Base scanning rules:
-//   Scan candles before the impulse while BOTH hold:
-//     1. Candle body <= nMax × ATR  (small, neutral candle)
-//     2. Total wick range of ALL accumulated base candles <= bRng × ATR
-//   Stop when EITHER breaks. Could be 2 candles or 8 — range-driven not count-driven.
-//   Fallback: if no qualifying consolidation found, use the single candle
-//   immediately before the move (Supply: top=wick, bot=body-bottom; Demand: opposite).
-
-f_supply(float mult, float bRatio, float nMax, int bLook, float bRng, int al) =>
-    float a       = ta.atr(al)[1]
-    float zTop    = float(na)
-    float zBot    = float(na)
+f_supplyZone(float mult, float bRatio, float nMax, int bLook, float bRange, int al) =>
+    float a      = ta.atr(al)[1]
+    float zTop   = float(na)
+    float zBot   = float(na)
     int   leftOff = 0
     bool  valid   = false
+
     if not na(a)
+        // Single explosive bearish candle
         float b1 = open[1] - close[1]
         float r1 = high[1] - low[1]
         bool  s1 = open[1] > close[1] and r1 > 0.0 and b1 >= mult * a and b1 / r1 >= bRatio
+
+        // 3-candle bearish sequence — each candle individually quality-filtered
         float r2 = high[2] - low[2]
         float r3 = high[3] - low[3]
-        bool  c1 = open[1] > close[1] and r1 > 0.0 and (open[1]-close[1]) >= 0.3*a and (open[1]-close[1])/r1 >= 0.5
-        bool  c2 = open[2] > close[2] and r2 > 0.0 and (open[2]-close[2]) >= 0.3*a and (open[2]-close[2])/r2 >= 0.5
-        bool  c3 = open[3] > close[3] and r3 > 0.0 and (open[3]-close[3]) >= 0.3*a and (open[3]-close[3])/r3 >= 0.5
+        bool c1ok = open[1] > close[1] and r1 > 0.0 and (open[1]-close[1]) >= 0.3*a and (open[1]-close[1])/r1 >= 0.5
+        bool c2ok = open[2] > close[2] and r2 > 0.0 and (open[2]-close[2]) >= 0.3*a and (open[2]-close[2])/r2 >= 0.5
+        bool c3ok = open[3] > close[3] and r3 > 0.0 and (open[3]-close[3]) >= 0.3*a and (open[3]-close[3])/r3 >= 0.5
         float b3  = (open[1]-close[1]) + (open[2]-close[2]) + (open[3]-close[3])
-        bool  s3  = c1 and c2 and c3 and b3 >= mult * a
-        int   bs  = s3 ? 4 : 2
-        if (s1 or s3) and not na(open[bs]) and not na(close[bs]) and not na(high[bs]) and not na(low[bs])
-            bool  foundBase = false
-            float accHigh   = high[bs]
-            float accLow    = low[bs]
-            // Check first base candle: body must be small
+        bool  s3  = c1ok and c2ok and c3ok and b3 >= mult * a
+
+        int bs = s3 ? 4 : 2
+
+        if (s1 or s3) and not na(open[bs]) and not na(close[bs])
             if math.abs(open[bs] - close[bs]) <= nMax * a
-                zTop      := high[bs]
-                zBot      := math.min(open[bs], close[bs])
-                leftOff   := bs
-                foundBase := true
-                // Keep scanning while both conditions hold
-                for k = bs + 1 to bs + bLook
-                    if na(open[k]) or na(close[k]) or na(high[k]) or na(low[k])
-                        break
-                    if math.abs(open[k] - close[k]) > nMax * a
-                        break
-                    float newHigh = math.max(accHigh, high[k])
-                    float newLow  = math.min(accLow,  low[k])
-                    if newHigh - newLow > bRng * a
-                        break
-                    accHigh := newHigh
-                    accLow  := newLow
-                    zTop    := math.max(zTop, high[k])
-                    zBot    := math.min(zBot, math.min(open[k], close[k]))
-                    leftOff := k
-            // Fallback: no consolidation found — use single candle before the move
-            if not foundBase
+                // Supply: top = highest WICK, bottom = lowest BODY-BOTTOM
                 zTop    := high[bs]
                 zBot    := math.min(open[bs], close[bs])
                 leftOff := bs
-            valid := zTop > zBot
-    [valid, zTop, zBot, leftOff]
 
-f_demand(float mult, float bRatio, float nMax, int bLook, float bRng, int al) =>
-    float a       = ta.atr(al)[1]
-    float zTop    = float(na)
-    float zBot    = float(na)
-    int   leftOff = 0
-    bool  valid   = false
-    if not na(a)
-        float b1 = close[1] - open[1]
-        float r1 = high[1] - low[1]
-        bool  s1 = close[1] > open[1] and r1 > 0.0 and b1 >= mult * a and b1 / r1 >= bRatio
-        float r2 = high[2] - low[2]
-        float r3 = high[3] - low[3]
-        bool  c1 = close[1] > open[1] and r1 > 0.0 and (close[1]-open[1]) >= 0.3*a and (close[1]-open[1])/r1 >= 0.5
-        bool  c2 = close[2] > open[2] and r2 > 0.0 and (close[2]-open[2]) >= 0.3*a and (close[2]-open[2])/r2 >= 0.5
-        bool  c3 = close[3] > open[3] and r3 > 0.0 and (close[3]-open[3]) >= 0.3*a and (close[3]-open[3])/r3 >= 0.5
-        float b3  = (close[1]-open[1]) + (close[2]-open[2]) + (close[3]-open[3])
-        bool  s3  = c1 and c2 and c3 and b3 >= mult * a
-        int   bs  = s3 ? 4 : 2
-        if (s1 or s3) and not na(open[bs]) and not na(close[bs]) and not na(high[bs]) and not na(low[bs])
-            bool  foundBase = false
-            float accHigh   = high[bs]
-            float accLow    = low[bs]
-            if math.abs(open[bs] - close[bs]) <= nMax * a
-                zTop      := math.max(open[bs], close[bs])
-                zBot      := low[bs]
-                leftOff   := bs
-                foundBase := true
                 for k = bs + 1 to bs + bLook
-                    if na(open[k]) or na(close[k]) or na(high[k]) or na(low[k])
+                    if na(open[k]) or na(close[k]) or na(high[k])
                         break
                     if math.abs(open[k] - close[k]) > nMax * a
                         break
-                    float newHigh = math.max(accHigh, high[k])
-                    float newLow  = math.min(accLow,  low[k])
-                    if newHigh - newLow > bRng * a
+                    if (math.max(zTop, high[k]) - math.min(zBot, math.min(open[k], close[k]))) > bRange * a
                         break
-                    accHigh := newHigh
-                    accLow  := newLow
-                    zTop    := math.max(zTop, math.max(open[k], close[k]))
-                    zBot    := math.min(zBot, low[k])
+                    zTop    := math.max(zTop, high[k])
+                    zBot    := math.min(zBot, math.min(open[k], close[k]))
                     leftOff := k
-            if not foundBase
+
+                valid := not na(zTop) and not na(zBot) and zTop > zBot
+    [valid, zTop, zBot, valid ? leftOff : 0]
+
+f_demandZone(float mult, float bRatio, float nMax, int bLook, float bRange, int al) =>
+    float a      = ta.atr(al)[1]
+    float zTop   = float(na)
+    float zBot   = float(na)
+    int   leftOff = 0
+    bool  valid   = false
+
+    if not na(a)
+        // Single explosive bullish candle
+        float b1 = close[1] - open[1]
+        float r1 = high[1] - low[1]
+        bool  s1 = close[1] > open[1] and r1 > 0.0 and b1 >= mult * a and b1 / r1 >= bRatio
+
+        // 3-candle bullish sequence — each candle individually quality-filtered
+        float r2 = high[2] - low[2]
+        float r3 = high[3] - low[3]
+        bool c1ok = close[1] > open[1] and r1 > 0.0 and (close[1]-open[1]) >= 0.3*a and (close[1]-open[1])/r1 >= 0.5
+        bool c2ok = close[2] > open[2] and r2 > 0.0 and (close[2]-open[2]) >= 0.3*a and (close[2]-open[2])/r2 >= 0.5
+        bool c3ok = close[3] > open[3] and r3 > 0.0 and (close[3]-open[3]) >= 0.3*a and (close[3]-open[3])/r3 >= 0.5
+        float b3  = (close[1]-open[1]) + (close[2]-open[2]) + (close[3]-open[3])
+        bool  s3  = c1ok and c2ok and c3ok and b3 >= mult * a
+
+        int bs = s3 ? 4 : 2
+
+        if (s1 or s3) and not na(open[bs]) and not na(close[bs])
+            if math.abs(open[bs] - close[bs]) <= nMax * a
+                // Demand: top = highest BODY-TOP, bottom = lowest WICK
                 zTop    := math.max(open[bs], close[bs])
                 zBot    := low[bs]
                 leftOff := bs
-            valid := zTop > zBot
-    [valid, zTop, zBot, leftOff]
 
-// ── FETCH ALL TIMEFRAMES ──────────────────────────────────────────────────────
-// All TFs use the same dual-condition base scan (body <= nMax*ATR AND total range <= bRng*ATR).
-// 15min uses neutralMx15 (slightly more lenient per-candle body threshold).
-// Primary: 4H
-[p_sv, p_sT, p_sB, p_sO] = request.security(syminfo.tickerid, zoneTF, f_supply(minMult, bodyRatio, neutralMx, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
-[p_dv, p_dT, p_dB, p_dO] = request.security(syminfo.tickerid, zoneTF, f_demand(minMult, bodyRatio, neutralMx, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
-// 2H
-[h2_sv, h2_sT, h2_sB, h2_sO] = request.security(syminfo.tickerid, "120", f_supply(minMult, bodyRatio, neutralMx, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
-[h2_dv, h2_dT, h2_dB, h2_dO] = request.security(syminfo.tickerid, "120", f_demand(minMult, bodyRatio, neutralMx, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
-// 1H
-[h1_sv, h1_sT, h1_sB, h1_sO] = request.security(syminfo.tickerid, "60", f_supply(minMult, bodyRatio, neutralMx, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
-[h1_dv, h1_dT, h1_dB, h1_dO] = request.security(syminfo.tickerid, "60", f_demand(minMult, bodyRatio, neutralMx, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
-// 30min
-[m30_sv, m30_sT, m30_sB, m30_sO] = request.security(syminfo.tickerid, "30", f_supply(minMult, bodyRatio, neutralMx, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
-[m30_dv, m30_dT, m30_dB, m30_dO] = request.security(syminfo.tickerid, "30", f_demand(minMult, bodyRatio, neutralMx, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
-// 15min (more lenient per-candle body threshold)
-[m15_sv, m15_sT, m15_sB, m15_sO] = request.security(syminfo.tickerid, "15", f_supply(minMult, bodyRatio, neutralMx15, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
-[m15_dv, m15_dT, m15_dB, m15_dO] = request.security(syminfo.tickerid, "15", f_demand(minMult, bodyRatio, neutralMx15, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
+                for k = bs + 1 to bs + bLook
+                    if na(open[k]) or na(close[k]) or na(low[k])
+                        break
+                    if math.abs(open[k] - close[k]) > nMax * a
+                        break
+                    if (math.max(zTop, math.max(open[k], close[k])) - math.min(zBot, low[k])) > bRange * a
+                        break
+                    zTop    := math.max(zTop, math.max(open[k], close[k]))
+                    zBot    := math.min(zBot, low[k])
+                    leftOff := k
 
-// Primary bar-change and chart-scale factor
+                valid := not na(zTop) and not na(zBot) and zTop > zBot
+    [valid, zTop, zBot, valid ? leftOff : 0]
+
+// ── FETCH FROM ZONE TF AND REFINEMENT TF ─────────────────────────────────────
+[htf_sValid, htf_sTop, htf_sBot, htf_sOff] = request.security(syminfo.tickerid, zoneTF, f_supplyZone(minMult, bodyRatio, neutralMax, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
+[htf_dValid, htf_dTop, htf_dBot, htf_dOff] = request.security(syminfo.tickerid, zoneTF, f_demandZone(minMult, bodyRatio, neutralMax, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
+[ref_sValid, ref_sTop, ref_sBot, ref_sOff] = request.security(syminfo.tickerid, refineTF, f_supplyZone(minMult, bodyRatio, neutralMax, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
+[ref_dValid, ref_dTop, ref_dBot, ref_dOff] = request.security(syminfo.tickerid, refineTF, f_demandZone(minMult, bodyRatio, neutralMax, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
+
+// ── REFINEMENT (Improvement 3) ────────────────────────────────────────────────
+// When the lower-TF zone overlaps the HTF zone by >= 50% of the HTF zone height,
+// tighten the box to the lower-TF edges (clamped to stay inside the HTF zone).
+// This replaces the old full-containment check.
+
+f_refineSupply(float htfTop, float htfBot, bool rValid, float rTop, float rBot) =>
+    float htfH      = htfTop - htfBot
+    float overlapH  = math.max(0.0, math.min(htfTop, rTop) - math.max(htfBot, rBot))
+    bool  canRefine = rValid and useRefine and htfH > 0.0 and overlapH / htfH >= 0.5
+    float fTop      = canRefine ? math.min(htfTop, rTop) : htfTop
+    float fBot      = canRefine ? math.max(htfBot, rBot) : htfBot
+    // Guard: if refinement collapsed the zone, fall back to HTF
+    [fTop > fBot ? fTop : htfTop, fTop > fBot ? fBot : htfBot]
+
+f_refineDemand(float htfTop, float htfBot, bool rValid, float rTop, float rBot) =>
+    float htfH      = htfTop - htfBot
+    float overlapH  = math.max(0.0, math.min(htfTop, rTop) - math.max(htfBot, rBot))
+    bool  canRefine = rValid and useRefine and htfH > 0.0 and overlapH / htfH >= 0.5
+    float fTop      = canRefine ? math.min(htfTop, rTop) : htfTop
+    float fBot      = canRefine ? math.max(htfBot, rBot) : htfBot
+    [fTop > fBot ? fTop : htfTop, fTop > fBot ? fBot : htfBot]
+
+// ── ZONE STORAGE ──────────────────────────────────────────────────────────────
 int   htf_bidx   = request.security(syminfo.tickerid, zoneTF, bar_index, barmerge.gaps_off, barmerge.lookahead_off)
 bool  is_new_htf = ta.change(htf_bidx) > 0
 float htfToChart = math.max(1.0, timeframe.in_seconds(zoneTF) / timeframe.in_seconds())
 
-// ── CASCADE HELPER ────────────────────────────────────────────────────────────
-// Returns [top, bot]: start with 4H zone, refine with each enabled finer TF
-// that overlaps the current best zone by >= overlapPc of the current height.
-// If 4H is invalid, falls through to the first valid finer TF as the base.
-
-f_cascadeZone(float minOvlp, bool sv4, float sT4, float sB4, bool sv2, float sT2, float sB2, bool en2, bool sv1, float sT1, float sB1, bool en1, bool sv30, float sT30, float sB30, bool en30, bool sv15, float sT15, float sB15, bool en15) =>
-    // Step 1: find starting zone — coarsest valid TF wins
-    float cTop = sv4 ? sT4 : en2 and sv2 ? sT2 : en1 and sv1 ? sT1 : en30 and sv30 ? sT30 : en15 and sv15 ? sT15 : float(na)
-    float cBot = sv4 ? sB4 : en2 and sv2 ? sB2 : en1 and sv1 ? sB1 : en30 and sv30 ? sB30 : en15 and sv15 ? sB15 : float(na)
-
-    // Step 2: refine with each finer TF that overlaps >= minOvlp of current zone
-    // 2H
-    if not na(cTop) and en2 and sv2
-        float h = cTop - cBot
-        float oh = math.max(0.0, math.min(cTop, sT2) - math.max(cBot, sB2))
-        if h > 0.0 and oh / h >= minOvlp
-            float nt = math.min(cTop, sT2)
-            float nb = math.max(cBot, sB2)
-            if nt > nb
-                cTop := nt
-                cBot := nb
-    // 1H
-    if not na(cTop) and en1 and sv1
-        float h = cTop - cBot
-        float oh = math.max(0.0, math.min(cTop, sT1) - math.max(cBot, sB1))
-        if h > 0.0 and oh / h >= minOvlp
-            float nt = math.min(cTop, sT1)
-            float nb = math.max(cBot, sB1)
-            if nt > nb
-                cTop := nt
-                cBot := nb
-    // 30min
-    if not na(cTop) and en30 and sv30
-        float h = cTop - cBot
-        float oh = math.max(0.0, math.min(cTop, sT30) - math.max(cBot, sB30))
-        if h > 0.0 and oh / h >= minOvlp
-            float nt = math.min(cTop, sT30)
-            float nb = math.max(cBot, sB30)
-            if nt > nb
-                cTop := nt
-                cBot := nb
-    // 15min
-    if not na(cTop) and en15 and sv15
-        float h = cTop - cBot
-        float oh = math.max(0.0, math.min(cTop, sT15) - math.max(cBot, sB15))
-        if h > 0.0 and oh / h >= minOvlp
-            float nt = math.min(cTop, sT15)
-            float nb = math.max(cBot, sB15)
-            if nt > nb
-                cTop := nt
-                cBot := nb
-    [cTop, cBot]
-
-// ── ZONE STORAGE ──────────────────────────────────────────────────────────────
 var box[]  supplyBoxes = array.new_box()
 var bool[] supplyHit   = array.new_bool()
 var box[]  demandBoxes = array.new_box()
 var bool[] demandHit   = array.new_bool()
 
-// ── DRAW ZONES ON NEW PRIMARY BAR ────────────────────────────────────────────
-// When a new zone overlaps an existing active zone, expand the existing box to
-// cover both (union of price ranges) instead of drawing a duplicate.
-if is_new_htf
-    // ── Supply cascade ────────────────────────────────────────────────────────
-    [fSTop, fSBot] = f_cascadeZone(overlapPc, p_sv, p_sT, p_sB, h2_sv, h2_sT, h2_sB, en2h, h1_sv, h1_sT, h1_sB, en1h, m30_sv, m30_sT, m30_sB, en30m, m15_sv, m15_sT, m15_sB, en15m)
-    if not na(fSTop) and fSTop > fSBot
-        bool sMerged = false
-        if array.size(supplyBoxes) > 0
-            for i = 0 to array.size(supplyBoxes) - 1
-                if not array.get(supplyHit, i)
-                    box bx = array.get(supplyBoxes, i)
-                    float eT = box.get_top(bx)
-                    float eB = box.get_bottom(bx)
-                    // Any price overlap → merge (union)
-                    if math.max(eB, fSBot) < math.min(eT, fSTop)
-                        box.set_top(bx, math.max(eT, fSTop))
-                        box.set_bottom(bx, math.min(eB, fSBot))
-                        sMerged := true
-                        break
-        if not sMerged
-            int leftBar = math.max(0, bar_index - math.round(p_sO * htfToChart))
-            box b = box.new(leftBar, fSTop, bar_index, fSBot, border_color=supplyBorder, bgcolor=supplyFill, border_width=2, extend=extend.right)
-            if showLabel
-                box.set_text(b, "S")
-                box.set_text_color(b, color.new(color.white, 0))
-                box.set_text_size(b, size.small)
-                box.set_text_halign(b, text.align_left)
-                box.set_text_valign(b, text.align_top)
-            array.push(supplyBoxes, b)
-            array.push(supplyHit, false)
-            if array.size(supplyBoxes) > maxZones
-                box oldest = array.shift(supplyBoxes)
-                if not array.shift(supplyHit)
-                    box.delete(oldest)
+// ── DRAW SUPPLY ZONE ──────────────────────────────────────────────────────────
+if is_new_htf and htf_sValid
+    [finalTop, finalBot] = f_refineSupply(htf_sTop, htf_sBot, ref_sValid, ref_sTop, ref_sBot)
+    int leftBar = math.max(0, bar_index - math.round(htf_sOff * htfToChart))
+    box b = box.new(leftBar, finalTop, bar_index, finalBot,
+         border_color=supplyBorder, bgcolor=supplyFill, border_width=2, extend=extend.right)
+    if showLabel
+        box.set_text(b, "S")
+        box.set_text_color(b, color.new(color.white, 0))
+        box.set_text_size(b, size.small)
+        box.set_text_halign(b, text.align_left)
+        box.set_text_valign(b, text.align_top)
+    array.push(supplyBoxes, b)
+    array.push(supplyHit, false)
+    if array.size(supplyBoxes) > maxZones
+        box oldest = array.shift(supplyBoxes)
+        if not array.shift(supplyHit)
+            box.delete(oldest)
 
-    // ── Demand cascade ────────────────────────────────────────────────────────
-    [fDTop, fDBot] = f_cascadeZone(overlapPc, p_dv, p_dT, p_dB, h2_dv, h2_dT, h2_dB, en2h, h1_dv, h1_dT, h1_dB, en1h, m30_dv, m30_dT, m30_dB, en30m, m15_dv, m15_dT, m15_dB, en15m)
-    if not na(fDTop) and fDTop > fDBot
-        bool dMerged = false
-        if array.size(demandBoxes) > 0
-            for i = 0 to array.size(demandBoxes) - 1
-                if not array.get(demandHit, i)
-                    box bx = array.get(demandBoxes, i)
-                    float eT = box.get_top(bx)
-                    float eB = box.get_bottom(bx)
-                    if math.max(eB, fDBot) < math.min(eT, fDTop)
-                        box.set_top(bx, math.max(eT, fDTop))
-                        box.set_bottom(bx, math.min(eB, fDBot))
-                        dMerged := true
-                        break
-        if not dMerged
-            int leftBar = math.max(0, bar_index - math.round(p_dO * htfToChart))
-            box b = box.new(leftBar, fDTop, bar_index, fDBot, border_color=demandBorder, bgcolor=demandFill, border_width=2, extend=extend.right)
-            if showLabel
-                box.set_text(b, "D")
-                box.set_text_color(b, color.new(color.white, 0))
-                box.set_text_size(b, size.small)
-                box.set_text_halign(b, text.align_left)
-                box.set_text_valign(b, text.align_top)
-            array.push(demandBoxes, b)
-            array.push(demandHit, false)
-            if array.size(demandBoxes) > maxZones
-                box oldest = array.shift(demandBoxes)
-                if not array.shift(demandHit)
-                    box.delete(oldest)
+// ── DRAW DEMAND ZONE ──────────────────────────────────────────────────────────
+if is_new_htf and htf_dValid
+    [finalTop, finalBot] = f_refineDemand(htf_dTop, htf_dBot, ref_dValid, ref_dTop, ref_dBot)
+    int leftBar = math.max(0, bar_index - math.round(htf_dOff * htfToChart))
+    box b = box.new(leftBar, finalTop, bar_index, finalBot,
+         border_color=demandBorder, bgcolor=demandFill, border_width=2, extend=extend.right)
+    if showLabel
+        box.set_text(b, "D")
+        box.set_text_color(b, color.new(color.white, 0))
+        box.set_text_size(b, size.small)
+        box.set_text_halign(b, text.align_left)
+        box.set_text_valign(b, text.align_top)
+    array.push(demandBoxes, b)
+    array.push(demandHit, false)
+    if array.size(demandBoxes) > maxZones
+        box oldest = array.shift(demandBoxes)
+        if not array.shift(demandHit)
+            box.delete(oldest)
 
 // ── MITIGATION ────────────────────────────────────────────────────────────────
-// Supply removed ONLY when candle CLOSES above the zone top.
-// Demand removed ONLY when candle CLOSES below the zone bottom.
-// Closing inside the zone does NOT remove it. Wicks do NOT remove it.
-
+// Supply removed when close > zone top (broke above). Demand removed when close < zone bottom.
 if barstate.isconfirmed and array.size(supplyBoxes) > 0
     for i = 0 to array.size(supplyBoxes) - 1
         if not array.get(supplyHit, i)
@@ -359,38 +224,3 @@ if barstate.isconfirmed and array.size(demandBoxes) > 0
                     box.set_border_color(b, color.new(color.gray, 50))
                 else
                     box.delete(b)
-
-// ── PROXIMITY DISPLAY ─────────────────────────────────────────────────────────
-// All zones are stored but only rendered when price is within proximityATR x ATR.
-// Distance to zone = 0 when price is inside it, else distance to the nearest edge.
-// Runs every bar (not just confirmed) for smooth real-time updates.
-float proxDist = ta.atr(atrLen) * proximityATR
-color transparent = color.new(color.black, 100)
-
-if array.size(supplyBoxes) > 0
-    for i = 0 to array.size(supplyBoxes) - 1
-        if not array.get(supplyHit, i)
-            box b = array.get(supplyBoxes, i)
-            float zT = box.get_top(b)
-            float zB = box.get_bottom(b)
-            float dist = math.max(0.0, math.max(zB - close, close - zT))
-            if dist <= proxDist
-                box.set_bgcolor(b, supplyFill)
-                box.set_border_color(b, supplyBorder)
-            else
-                box.set_bgcolor(b, transparent)
-                box.set_border_color(b, transparent)
-
-if array.size(demandBoxes) > 0
-    for i = 0 to array.size(demandBoxes) - 1
-        if not array.get(demandHit, i)
-            box b = array.get(demandBoxes, i)
-            float zT = box.get_top(b)
-            float zB = box.get_bottom(b)
-            float dist = math.max(0.0, math.max(zB - close, close - zT))
-            if dist <= proxDist
-                box.set_bgcolor(b, demandFill)
-                box.set_border_color(b, demandBorder)
-            else
-                box.set_bgcolor(b, transparent)
-                box.set_border_color(b, transparent)
