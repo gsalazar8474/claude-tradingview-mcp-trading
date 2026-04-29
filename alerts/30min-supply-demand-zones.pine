@@ -20,11 +20,12 @@ indicator("Elder Santis - Supply & Demand Zones", overlay=true, max_bars_back=50
 // ── INPUTS ────────────────────────────────────────────────────────────────────
 zoneTF     = input.timeframe("240",  "Zone Source Timeframe (240=4H, 60=1H, 30=30min)")
 atrLen     = input.int(14,    "ATR Length",                    minval=1, maxval=50)
-minMult    = input.float(2.5, "Min Impulse Body (x ATR)",     minval=0.5, maxval=10.0, step=0.25)
-bodyRatio  = input.float(0.5, "Min body / range ratio",        minval=0.3, maxval=1.0,  step=0.05)
-neutralMax = input.float(0.5, "Base candle body max (x ATR)", minval=0.1, maxval=2.0,  step=0.1)
-baseLook   = input.int(3,     "Max base candles to scan",     minval=1,  maxval=10)
-maxZones   = input.int(20,    "Max zones per side",           minval=1,  maxval=50)
+minMult    = input.float(2.5, "Supply min impulse body (x ATR)", minval=0.5, maxval=10.0, step=0.25)
+demandMult = input.float(1.8, "Demand min impulse body (x ATR)", minval=0.5, maxval=10.0, step=0.25)
+bodyRatio  = input.float(0.5, "Min body / range ratio",           minval=0.3, maxval=1.0,  step=0.05)
+neutralMax = input.float(0.5, "Base candle body max (x ATR)",    minval=0.1, maxval=2.0,  step=0.1)
+baseLook   = input.int(3,     "Max base candles to scan",        minval=1,  maxval=10)
+maxZones   = input.int(50,    "Max zones per side",              minval=1,  maxval=100)
 showMit    = input.bool(false, "Show mitigated zones (greyed out)")
 showLabel  = input.bool(true,  "Show zone label (S / D)")
 supplyFill   = input.color(color.new(#5C0000, 60), "Supply fill")
@@ -92,7 +93,7 @@ f_demandZone(mult, bRatio, nMax, bLook, al) =>
 
 // ── FETCH ZONE DATA FROM SOURCE TF ───────────────────────────────────────────
 [htf_sBear, htf_sTop, htf_sBot, htf_sOff] = request.security(syminfo.tickerid, zoneTF, f_supplyZone(minMult, bodyRatio, neutralMax, baseLook, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
-[htf_sBull, htf_dTop, htf_dBot, htf_dOff] = request.security(syminfo.tickerid, zoneTF, f_demandZone(minMult, bodyRatio, neutralMax, baseLook, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
+[htf_sBull, htf_dTop, htf_dBot, htf_dOff] = request.security(syminfo.tickerid, zoneTF, f_demandZone(demandMult, bodyRatio, neutralMax, baseLook, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
 htf_bidx = request.security(syminfo.tickerid, zoneTF, bar_index, barmerge.gaps_off, barmerge.lookahead_off)
 
 is_new_htf = ta.change(htf_bidx) > 0
