@@ -298,25 +298,30 @@ if is_new_htf and htf_dValid and showLabel and array.size(demandBoxes) > 0
 // If confirmed = FLIP (swap colors, update label).
 // If not confirmed = delete normally.
 
-// Checks bars[0], bars[1], bars[2] — the 3 bars AFTER the break
-// dir: 1 = upward (broke above supply), -1 = downward (broke below demand)
-// All 3 bars must be: same direction, body >= 0.8 x ATR, opposing wick <= 20% of range.
-// Total move of those 3 bars must be >= 30 price points.
+// Checks bars[0..4] — the 5 bars AFTER the break.
+// dir: 1 = upward (broke above supply→flip to demand), -1 = downward (broke below demand→flip to supply)
+// Flip is confirmed when across those 5 bars:
+//   - At least 3 bars in the break direction
+//   - Every directional bar has body >= 0.6 x ATR (no small candles)
+//   - Fewer than 2 bars going the opposite direction (not choppy)
+//   - Total net move >= 20 price points
 f_checkPostBreak(int dir) =>
-    float a    = ta.atr(atrLen)
-    bool  dOk  = true
-    bool  wOk  = true
-    for j = 0 to 2
-        float rng  = high[j] - low[j]
-        float body = math.abs(open[j] - close[j])
-        bool  isD  = dir > 0 ? close[j] > open[j] : open[j] > close[j]
-        float opp  = dir > 0 ? math.min(open[j], close[j]) - low[j] : high[j] - math.max(open[j], close[j])
-        if not isD or body < 0.8 * a
-            dOk := false
-        if rng > 0.0 and opp > 0.2 * rng
-            wOk := false
-    float totalMove = dir > 0 ? close - close[2] : close[2] - close
-    dOk and wOk and totalMove >= 30.0
+    float a      = ta.atr(atrLen)
+    int   dirCnt = 0
+    int   oppCnt = 0
+    bool  bodyOk = true
+    for j = 0 to 4
+        bool  inDir = dir > 0 ? close[j] > open[j] : open[j] > close[j]
+        bool  inOpp = dir > 0 ? open[j] > close[j] : close[j] > open[j]
+        float body  = math.abs(open[j] - close[j])
+        if inDir
+            dirCnt := dirCnt + 1
+            if body < 0.6 * a
+                bodyOk := false
+        if inOpp
+            oppCnt := oppCnt + 1
+    float totalMove = dir > 0 ? close - close[4] : close[4] - close
+    dirCnt >= 3 and oppCnt < 2 and bodyOk and totalMove >= 20.0
 
 var box[]  monitSupply     = array.new_box()
 var int[]  monitSupplyBar  = array.new_int()
@@ -355,7 +360,7 @@ if barstate.isconfirmed and array.size(demandBoxes) > 0
 if barstate.isconfirmed and array.size(monitSupply) > 0
     for i = 0 to array.size(monitSupply) - 1
         if not array.get(monitSupplyDone, i)
-            if bar_index - array.get(monitSupplyBar, i) >= 3
+            if bar_index - array.get(monitSupplyBar, i) >= 5
                 array.set(monitSupplyDone, i, true)
                 box b = array.get(monitSupply, i)
                 if f_checkPostBreak(1)
@@ -377,7 +382,7 @@ if barstate.isconfirmed and array.size(monitSupply) > 0
 if barstate.isconfirmed and array.size(monitDemand) > 0
     for i = 0 to array.size(monitDemand) - 1
         if not array.get(monitDemandDone, i)
-            if bar_index - array.get(monitDemandBar, i) >= 3
+            if bar_index - array.get(monitDemandBar, i) >= 5
                 array.set(monitDemandDone, i, true)
                 box b = array.get(monitDemand, i)
                 if f_checkPostBreak(-1)
