@@ -300,26 +300,23 @@ if is_new_htf and htf_dValid and showLabel and array.size(demandBoxes) > 0
 
 // Checks bars[0], bars[1], bars[2] — the 3 bars AFTER the break
 // dir: 1 = upward (broke above supply), -1 = downward (broke below demand)
+// All 3 bars must be: same direction, body >= 0.8 x ATR, opposing wick <= 20% of range.
+// Total move of those 3 bars must be >= 30 price points.
 f_checkPostBreak(int dir) =>
-    float a   = ta.atr(atrLen)
-    bool dOk  = true
-    bool wOk  = true
-    bool rOk  = true
+    float a    = ta.atr(atrLen)
+    bool  dOk  = true
+    bool  wOk  = true
     for j = 0 to 2
         float rng  = high[j] - low[j]
         float body = math.abs(open[j] - close[j])
         bool  isD  = dir > 0 ? close[j] > open[j] : open[j] > close[j]
         float opp  = dir > 0 ? math.min(open[j], close[j]) - low[j] : high[j] - math.max(open[j], close[j])
-        if not isD or body < 0.5 * a
+        if not isD or body < 0.8 * a
             dOk := false
-        if rng > 0.0 and opp > 0.25 * rng
+        if rng > 0.0 and opp > 0.2 * rng
             wOk := false
-        if j < 2
-            float prevBody = math.abs(open[j+1] - close[j+1])
-            float ret      = dir > 0 ? math.max(0.0, open[j] - close[j]) : math.max(0.0, close[j] - open[j])
-            if prevBody > 0.0 and ret > 0.2 * prevBody
-                rOk := false
-    dOk and wOk and rOk
+    float totalMove = dir > 0 ? close - close[2] : close[2] - close
+    dOk and wOk and totalMove >= 30.0
 
 var box[]  monitSupply     = array.new_box()
 var int[]  monitSupplyBar  = array.new_int()
