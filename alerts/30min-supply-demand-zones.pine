@@ -82,7 +82,7 @@ f_supply(float mult, float bRatio, float nMax, float rMax, int bLook, float bRng
             if firstOk
                 zTop         := high[bs]
                 zBot         := math.min(open[bs], close[bs])
-                float allLow := low[bs]   // track min wick for total-range check
+                float allLow = low[bs]   // track min wick for total-range check
                 leftOff      := bs
                 for k = bs + 1 to bs + bLook
                     if na(open[k]) or na(close[k]) or na(high[k])
@@ -130,7 +130,7 @@ f_demand(float mult, float bRatio, float nMax, float rMax, int bLook, float bRng
             if firstOk
                 zTop          := math.max(open[bs], close[bs])
                 zBot          := low[bs]
-                float allHigh := high[bs]   // track max wick for total-range check
+                float allHigh = high[bs]   // track max wick for total-range check
                 leftOff       := bs
                 for k = bs + 1 to bs + bLook
                     if na(open[k]) or na(close[k]) or na(low[k])
