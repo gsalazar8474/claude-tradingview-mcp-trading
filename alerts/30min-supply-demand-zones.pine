@@ -28,9 +28,10 @@ float  consolidRng = input.float(2.0, "30min/15min: max total wick range (x ATR)
 int    baseLook    = input.int(5,     "Max base candles to scan",                  minval=1,  maxval=10)
 float  baseRange   = input.float(4.0, "Max consolidation range (x ATR)",           minval=0.5,maxval=8.0, step=0.25)
 float  overlapPc = input.float(0.5, "Min overlap to refine (0-1)",     minval=0.1,maxval=1.0, step=0.05)
-int    maxZones  = input.int(15,    "Max zones per side",              minval=1,  maxval=50)
-bool   showMit   = input.bool(false, "Show mitigated zones")
-bool   showLabel = input.bool(true,  "Show zone label (S / D)")
+int    maxZones     = input.int(15,    "Max zones per side",                           minval=1,  maxval=50)
+float  proximityATR = input.float(10.0, "Show zones within (x ATR of current price)", minval=1.0,maxval=50.0,step=1.0)
+bool   showMit      = input.bool(false, "Show mitigated zones")
+bool   showLabel    = input.bool(true,  "Show zone label (S / D)")
 
 color supplyFill   = input.color(color.new(#5C0000, 60), "Supply fill")
 color demandFill   = input.color(color.new(#003300, 60), "Demand fill")
@@ -335,3 +336,38 @@ if barstate.isconfirmed and array.size(demandBoxes) > 0
                     box.set_border_color(b, color.new(color.gray, 50))
                 else
                     box.delete(b)
+
+// ── PROXIMITY DISPLAY ─────────────────────────────────────────────────────────
+// All zones are stored but only rendered when price is within proximityATR x ATR.
+// Distance to zone = 0 when price is inside it, else distance to the nearest edge.
+// Runs every bar (not just confirmed) for smooth real-time updates.
+float proxDist = ta.atr(atrLen) * proximityATR
+color transparent = color.new(color.black, 100)
+
+if array.size(supplyBoxes) > 0
+    for i = 0 to array.size(supplyBoxes) - 1
+        if not array.get(supplyHit, i)
+            box b = array.get(supplyBoxes, i)
+            float zT = box.get_top(b)
+            float zB = box.get_bottom(b)
+            float dist = math.max(0.0, math.max(zB - close, close - zT))
+            if dist <= proxDist
+                box.set_bgcolor(b, supplyFill)
+                box.set_border_color(b, supplyBorder)
+            else
+                box.set_bgcolor(b, transparent)
+                box.set_border_color(b, transparent)
+
+if array.size(demandBoxes) > 0
+    for i = 0 to array.size(demandBoxes) - 1
+        if not array.get(demandHit, i)
+            box b = array.get(demandBoxes, i)
+            float zT = box.get_top(b)
+            float zB = box.get_bottom(b)
+            float dist = math.max(0.0, math.max(zB - close, close - zT))
+            if dist <= proxDist
+                box.set_bgcolor(b, demandFill)
+                box.set_border_color(b, demandBorder)
+            else
+                box.set_bgcolor(b, transparent)
+                box.set_border_color(b, transparent)
