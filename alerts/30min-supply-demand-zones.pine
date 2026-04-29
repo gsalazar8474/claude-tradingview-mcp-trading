@@ -119,11 +119,89 @@ f_demandZone(float mult, float bRatio, float nMax, int bLook, float bRange, int 
                 valid := not na(zTop) and not na(zBot) and zTop > zBot
     [valid, zTop, zBot, valid ? leftOff : 0]
 
+// ── CONTINUATION ZONE FUNCTIONS ───────────────────────────────────────────────
+// Continuation Supply: 2+ strong bearish candles → 1-4 pullback candles up → 1+ bearish resumption
+//   Zone drawn from the PULLBACK candles: top=max wick, bottom=min body-bottom
+// Continuation Demand: 2+ strong bullish candles → 1-4 pullback candles down → 1+ bullish resumption
+//   Zone drawn from the PULLBACK candles: top=max body-top, bottom=min wick
+
+f_supplyContZone(float mult, int al) =>
+    float a      = ta.atr(al)[1]
+    float zTop   = float(na)
+    float zBot   = float(na)
+    int   leftOff = 0
+    bool  valid   = false
+    if not na(a)
+        // bar[0] = strong bearish resumption (body >= 0.8 x ATR)
+        bool resumeOk = open > close and (open - close) >= 0.8 * a
+        if resumeOk
+            // Count consecutive bullish pullback candles in bar[1..4] (body <= 1.5 x ATR)
+            int pullLen = 0
+            for k = 1 to 4
+                if close[k] >= open[k] and (close[k] - open[k]) <= 1.5 * a
+                    pullLen := k
+                else
+                    break
+            if pullLen >= 1
+                // Initial bearish move: bar[pullLen+1] and bar[pullLen+2] combined body >= minMult x ATR
+                int   p1      = pullLen + 1
+                int   p2      = pullLen + 2
+                float preBody = (open[p1] > close[p1] ? open[p1] - close[p1] : 0.0) + (open[p2] > close[p2] ? open[p2] - close[p2] : 0.0)
+                if preBody >= mult * a
+                    // Zone = pullback candles bar[1..pullLen]
+                    zTop    := high[1]
+                    zBot    := math.min(open[1], close[1])
+                    leftOff := pullLen
+                    for k = 2 to pullLen
+                        zTop := math.max(zTop, high[k])
+                        zBot := math.min(zBot, math.min(open[k], close[k]))
+                    valid := zTop > zBot
+    [valid, zTop, zBot, valid ? leftOff : 0]
+
+f_demandContZone(float mult, int al) =>
+    float a      = ta.atr(al)[1]
+    float zTop   = float(na)
+    float zBot   = float(na)
+    int   leftOff = 0
+    bool  valid   = false
+    if not na(a)
+        // bar[0] = strong bullish resumption (body >= 0.8 x ATR)
+        bool resumeOk = close > open and (close - open) >= 0.8 * a
+        if resumeOk
+            // Count consecutive bearish pullback candles in bar[1..4] (body <= 1.5 x ATR)
+            int pullLen = 0
+            for k = 1 to 4
+                if open[k] >= close[k] and (open[k] - close[k]) <= 1.5 * a
+                    pullLen := k
+                else
+                    break
+            if pullLen >= 1
+                // Initial bullish move: bar[pullLen+1] and bar[pullLen+2] combined body >= minMult x ATR
+                int   p1      = pullLen + 1
+                int   p2      = pullLen + 2
+                float preBody = (close[p1] > open[p1] ? close[p1] - open[p1] : 0.0) + (close[p2] > open[p2] ? close[p2] - open[p2] : 0.0)
+                if preBody >= mult * a
+                    // Zone = pullback candles bar[1..pullLen]
+                    zTop    := math.max(open[1], close[1])
+                    zBot    := low[1]
+                    leftOff := pullLen
+                    for k = 2 to pullLen
+                        zTop := math.max(zTop, math.max(open[k], close[k]))
+                        zBot := math.min(zBot, low[k])
+                    valid := zTop > zBot
+    [valid, zTop, zBot, valid ? leftOff : 0]
+
 // ── FETCH FROM ZONE TF AND REFINEMENT TF ─────────────────────────────────────
 [htf_sValid, htf_sTop, htf_sBot, htf_sOff] = request.security(syminfo.tickerid, zoneTF, f_supplyZone(minMult, bodyRatio, neutralMax, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
 [htf_dValid, htf_dTop, htf_dBot, htf_dOff] = request.security(syminfo.tickerid, zoneTF, f_demandZone(minMult, bodyRatio, neutralMax, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
 [ref_sValid, ref_sTop, ref_sBot, ref_sOff] = request.security(syminfo.tickerid, refineTF, f_supplyZone(minMult, bodyRatio, neutralMax, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
 [ref_dValid, ref_dTop, ref_dBot, ref_dOff] = request.security(syminfo.tickerid, refineTF, f_demandZone(minMult, bodyRatio, neutralMax, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
+
+// Departure extremes — used for zone strength tier calculation
+// Supply departure = lowest low reached by the impulse candle(s) in the HTF context
+// Demand departure = highest high reached by the impulse candle(s)
+htf_sDepLow  = request.security(syminfo.tickerid, zoneTF, math.min(low[1], math.min(low[2], low[3])), barmerge.gaps_off, barmerge.lookahead_off)
+htf_dDepHigh = request.security(syminfo.tickerid, zoneTF, math.max(high[1], math.max(high[2], high[3])), barmerge.gaps_off, barmerge.lookahead_off)
 
 // ── REFINEMENT (Improvement 3) ────────────────────────────────────────────────
 // When the lower-TF zone overlaps the HTF zone by >= 50% of the HTF zone height,
@@ -176,6 +254,14 @@ if is_new_htf and htf_sValid
         if not array.shift(supplyHit)
             box.delete(oldest)
 
+// ── SUPPLY ZONE STRENGTH TIER LABEL ──────────────────────────────────────────
+// Tier 1 >= 800 pts, Tier 2 400-799 pts, Tier 3 200-399 pts
+if is_new_htf and htf_sValid and showLabel and array.size(supplyBoxes) > 0
+    float sMoveSize = not na(htf_sDepLow) ? htf_sTop - htf_sDepLow : 0.0
+    string sTier    = sMoveSize >= 800 ? "S1" : sMoveSize >= 400 ? "S2" : sMoveSize >= 200 ? "S3" : "S"
+    if not array.get(supplyHit, array.size(supplyHit) - 1)
+        box.set_text(array.get(supplyBoxes, array.size(supplyBoxes) - 1), sTier)
+
 // ── DRAW DEMAND ZONE ──────────────────────────────────────────────────────────
 if is_new_htf and htf_dValid
     [finalTop, finalBot] = f_refineDemand(htf_dTop, htf_dBot, ref_dValid, ref_dTop, ref_dBot)
@@ -194,6 +280,53 @@ if is_new_htf and htf_dValid
         box oldest = array.shift(demandBoxes)
         if not array.shift(demandHit)
             box.delete(oldest)
+
+// ── DEMAND ZONE STRENGTH TIER LABEL ──────────────────────────────────────────
+if is_new_htf and htf_dValid and showLabel and array.size(demandBoxes) > 0
+    float dMoveSize = not na(htf_dDepHigh) ? htf_dDepHigh - htf_dBot : 0.0
+    string dTier    = dMoveSize >= 800 ? "D1" : dMoveSize >= 400 ? "D2" : dMoveSize >= 200 ? "D3" : "D"
+    if not array.get(demandHit, array.size(demandHit) - 1)
+        box.set_text(array.get(demandBoxes, array.size(demandBoxes) - 1), dTier)
+
+// ── ROLE REVERSAL ─────────────────────────────────────────────────────────────
+// Impulsive break (body >= 1.5 x ATR AND body/range >= 0.5) flips the zone to the opposite role.
+// Slow grind break (body < 1.0 x ATR) falls through to normal mitigation below.
+// Run BEFORE existing mitigation so impulsive breaks are marked hit first.
+var box[]  supplyFlipped    = array.new_box()
+var bool[] supplyFlippedHit = array.new_bool()
+var box[]  demandFlipped    = array.new_box()
+var bool[] demandFlippedHit = array.new_bool()
+
+float rvAtr   = ta.atr(atrLen)
+float rvBody  = math.abs(open - close)
+float rvRange = math.max(high - low, 0.0001)
+bool  rvImp   = barstate.isconfirmed and not na(rvAtr) and rvBody >= 1.5 * rvAtr and rvBody / rvRange >= 0.5
+
+if rvImp and array.size(supplyBoxes) > 0
+    for i = 0 to array.size(supplyBoxes) - 1
+        if not array.get(supplyHit, i)
+            box b = array.get(supplyBoxes, i)
+            if close > box.get_top(b)
+                array.set(supplyHit, i, true)      // block existing mitigation from deleting it
+                box.set_bgcolor(b, demandFill)
+                box.set_border_color(b, demandBorder)
+                if showLabel
+                    box.set_text(b, "D (flipped)")
+                array.push(supplyFlipped, b)
+                array.push(supplyFlippedHit, false)
+
+if rvImp and array.size(demandBoxes) > 0
+    for i = 0 to array.size(demandBoxes) - 1
+        if not array.get(demandHit, i)
+            box b = array.get(demandBoxes, i)
+            if close < box.get_bottom(b)
+                array.set(demandHit, i, true)
+                box.set_bgcolor(b, supplyFill)
+                box.set_border_color(b, supplyBorder)
+                if showLabel
+                    box.set_text(b, "S (flipped)")
+                array.push(demandFlipped, b)
+                array.push(demandFlippedHit, false)
 
 // ── MITIGATION ────────────────────────────────────────────────────────────────
 // Supply removed when close > zone top (broke above). Demand removed when close < zone bottom.
@@ -217,6 +350,37 @@ if barstate.isconfirmed and array.size(demandBoxes) > 0
             box b = array.get(demandBoxes, i)
             if close < box.get_bottom(b)
                 array.set(demandHit, i, true)
+                box.set_extend(b, extend.none)
+                box.set_right(b, bar_index)
+                if showMit
+                    box.set_bgcolor(b, mitFill)
+                    box.set_border_color(b, color.new(color.gray, 50))
+                else
+                    box.delete(b)
+
+// ── FLIPPED ZONE MITIGATION ───────────────────────────────────────────────────
+// Former supply zones (flipped to demand) → remove when close < zone bottom
+// Former demand zones (flipped to supply) → remove when close > zone top
+if barstate.isconfirmed and array.size(supplyFlipped) > 0
+    for i = 0 to array.size(supplyFlipped) - 1
+        if not array.get(supplyFlippedHit, i)
+            box b = array.get(supplyFlipped, i)
+            if close < box.get_bottom(b)
+                array.set(supplyFlippedHit, i, true)
+                box.set_extend(b, extend.none)
+                box.set_right(b, bar_index)
+                if showMit
+                    box.set_bgcolor(b, mitFill)
+                    box.set_border_color(b, color.new(color.gray, 50))
+                else
+                    box.delete(b)
+
+if barstate.isconfirmed and array.size(demandFlipped) > 0
+    for i = 0 to array.size(demandFlipped) - 1
+        if not array.get(demandFlippedHit, i)
+            box b = array.get(demandFlipped, i)
+            if close > box.get_top(b)
+                array.set(demandFlippedHit, i, true)
                 box.set_extend(b, extend.none)
                 box.set_right(b, bar_index)
                 if showMit
