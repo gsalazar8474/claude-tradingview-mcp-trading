@@ -120,21 +120,10 @@ f_demandZone(float mult, float bRatio, float nMax, int bLook, float bRange, int 
     [valid, zTop, zBot, valid ? leftOff : 0]
 
 // ── FETCH FROM ZONE TF AND REFINEMENT TF ─────────────────────────────────────
-[htf_sValid, htf_sTop, htf_sBot, htf_sOff] = request.security(syminfo.tickerid, zoneTF,
-    f_supplyZone(minMult, bodyRatio, neutralMax, baseLook, baseRange, atrLen),
-    barmerge.gaps_off, barmerge.lookahead_off)
-
-[htf_dValid, htf_dTop, htf_dBot, htf_dOff] = request.security(syminfo.tickerid, zoneTF,
-    f_demandZone(minMult, bodyRatio, neutralMax, baseLook, baseRange, atrLen),
-    barmerge.gaps_off, barmerge.lookahead_off)
-
-[ref_sValid, ref_sTop, ref_sBot, ref_sOff] = request.security(syminfo.tickerid, refineTF,
-    f_supplyZone(minMult, bodyRatio, neutralMax, baseLook, baseRange, atrLen),
-    barmerge.gaps_off, barmerge.lookahead_off)
-
-[ref_dValid, ref_dTop, ref_dBot, ref_dOff] = request.security(syminfo.tickerid, refineTF,
-    f_demandZone(minMult, bodyRatio, neutralMax, baseLook, baseRange, atrLen),
-    barmerge.gaps_off, barmerge.lookahead_off)
+[htf_sValid, htf_sTop, htf_sBot, htf_sOff] = request.security(syminfo.tickerid, zoneTF, f_supplyZone(minMult, bodyRatio, neutralMax, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
+[htf_dValid, htf_dTop, htf_dBot, htf_dOff] = request.security(syminfo.tickerid, zoneTF, f_demandZone(minMult, bodyRatio, neutralMax, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
+[ref_sValid, ref_sTop, ref_sBot, ref_sOff] = request.security(syminfo.tickerid, refineTF, f_supplyZone(minMult, bodyRatio, neutralMax, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
+[ref_dValid, ref_dTop, ref_dBot, ref_dOff] = request.security(syminfo.tickerid, refineTF, f_demandZone(minMult, bodyRatio, neutralMax, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
 
 // ── REFINEMENT (Improvement 3) ────────────────────────────────────────────────
 // When the lower-TF zone overlaps the HTF zone by >= 50% of the HTF zone height,
