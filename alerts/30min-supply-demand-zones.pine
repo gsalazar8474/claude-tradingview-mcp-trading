@@ -237,50 +237,83 @@ var box[]  demandBoxes = array.new_box()
 var bool[] demandHit   = array.new_bool()
 
 // ── DRAW ZONES ON NEW PRIMARY BAR ────────────────────────────────────────────
+// When a new zone overlaps an existing active zone, expand the existing box to
+// cover both (union of price ranges) instead of drawing a duplicate.
 if is_new_htf
-    // Supply cascade
+    // ── Supply cascade ────────────────────────────────────────────────────────
     [fSTop, fSBot] = f_cascadeZone(overlapPc, p_sv, p_sT, p_sB, h2_sv, h2_sT, h2_sB, en2h, h1_sv, h1_sT, h1_sB, en1h, m30_sv, m30_sT, m30_sB, en30m, m15_sv, m15_sT, m15_sB, en15m)
     if not na(fSTop) and fSTop > fSBot
-        int leftBar = math.max(0, bar_index - math.round(p_sO * htfToChart))
-        box b = box.new(leftBar, fSTop, bar_index, fSBot, border_color=supplyBorder, bgcolor=supplyFill, border_width=2, extend=extend.right)
-        if showLabel
-            box.set_text(b, "S")
-            box.set_text_color(b, color.new(color.white, 0))
-            box.set_text_size(b, size.small)
-            box.set_text_halign(b, text.align_left)
-            box.set_text_valign(b, text.align_top)
-        array.push(supplyBoxes, b)
-        array.push(supplyHit, false)
-        if array.size(supplyBoxes) > maxZones
-            box oldest = array.shift(supplyBoxes)
-            if not array.shift(supplyHit)
-                box.delete(oldest)
+        bool sMerged = false
+        if array.size(supplyBoxes) > 0
+            for i = 0 to array.size(supplyBoxes) - 1
+                if not array.get(supplyHit, i)
+                    box bx = array.get(supplyBoxes, i)
+                    float eT = box.get_top(bx)
+                    float eB = box.get_bottom(bx)
+                    // Any price overlap → merge (union)
+                    if math.max(eB, fSBot) < math.min(eT, fSTop)
+                        box.set_top(bx, math.max(eT, fSTop))
+                        box.set_bottom(bx, math.min(eB, fSBot))
+                        sMerged := true
+                        break
+        if not sMerged
+            int leftBar = math.max(0, bar_index - math.round(p_sO * htfToChart))
+            box b = box.new(leftBar, fSTop, bar_index, fSBot, border_color=supplyBorder, bgcolor=supplyFill, border_width=2, extend=extend.right)
+            if showLabel
+                box.set_text(b, "S")
+                box.set_text_color(b, color.new(color.white, 0))
+                box.set_text_size(b, size.small)
+                box.set_text_halign(b, text.align_left)
+                box.set_text_valign(b, text.align_top)
+            array.push(supplyBoxes, b)
+            array.push(supplyHit, false)
+            if array.size(supplyBoxes) > maxZones
+                box oldest = array.shift(supplyBoxes)
+                if not array.shift(supplyHit)
+                    box.delete(oldest)
 
-    // Demand cascade
+    // ── Demand cascade ────────────────────────────────────────────────────────
     [fDTop, fDBot] = f_cascadeZone(overlapPc, p_dv, p_dT, p_dB, h2_dv, h2_dT, h2_dB, en2h, h1_dv, h1_dT, h1_dB, en1h, m30_dv, m30_dT, m30_dB, en30m, m15_dv, m15_dT, m15_dB, en15m)
     if not na(fDTop) and fDTop > fDBot
-        int leftBar = math.max(0, bar_index - math.round(p_dO * htfToChart))
-        box b = box.new(leftBar, fDTop, bar_index, fDBot, border_color=demandBorder, bgcolor=demandFill, border_width=2, extend=extend.right)
-        if showLabel
-            box.set_text(b, "D")
-            box.set_text_color(b, color.new(color.white, 0))
-            box.set_text_size(b, size.small)
-            box.set_text_halign(b, text.align_left)
-            box.set_text_valign(b, text.align_top)
-        array.push(demandBoxes, b)
-        array.push(demandHit, false)
-        if array.size(demandBoxes) > maxZones
-            box oldest = array.shift(demandBoxes)
-            if not array.shift(demandHit)
-                box.delete(oldest)
+        bool dMerged = false
+        if array.size(demandBoxes) > 0
+            for i = 0 to array.size(demandBoxes) - 1
+                if not array.get(demandHit, i)
+                    box bx = array.get(demandBoxes, i)
+                    float eT = box.get_top(bx)
+                    float eB = box.get_bottom(bx)
+                    if math.max(eB, fDBot) < math.min(eT, fDTop)
+                        box.set_top(bx, math.max(eT, fDTop))
+                        box.set_bottom(bx, math.min(eB, fDBot))
+                        dMerged := true
+                        break
+        if not dMerged
+            int leftBar = math.max(0, bar_index - math.round(p_dO * htfToChart))
+            box b = box.new(leftBar, fDTop, bar_index, fDBot, border_color=demandBorder, bgcolor=demandFill, border_width=2, extend=extend.right)
+            if showLabel
+                box.set_text(b, "D")
+                box.set_text_color(b, color.new(color.white, 0))
+                box.set_text_size(b, size.small)
+                box.set_text_halign(b, text.align_left)
+                box.set_text_valign(b, text.align_top)
+            array.push(demandBoxes, b)
+            array.push(demandHit, false)
+            if array.size(demandBoxes) > maxZones
+                box oldest = array.shift(demandBoxes)
+                if not array.shift(demandHit)
+                    box.delete(oldest)
 
 // ── MITIGATION ────────────────────────────────────────────────────────────────
-// Supply removed when close > zone top. Demand removed when close < zone bottom.
+// 0.1 x ATR buffer prevents tiny wicks from prematurely removing zones.
+// Supply removed when close > zone top + buffer.
+// Demand removed when close < zone bottom - buffer.
+float mitBuf = ta.atr(atrLen) * 0.1
+
 if barstate.isconfirmed and array.size(supplyBoxes) > 0
     for i = 0 to array.size(supplyBoxes) - 1
         if not array.get(supplyHit, i)
             box b = array.get(supplyBoxes, i)
-            if close > box.get_top(b)
+            if close > box.get_top(b) + mitBuf
                 array.set(supplyHit, i, true)
                 box.set_extend(b, extend.none)
                 box.set_right(b, bar_index)
@@ -294,7 +327,7 @@ if barstate.isconfirmed and array.size(demandBoxes) > 0
     for i = 0 to array.size(demandBoxes) - 1
         if not array.get(demandHit, i)
             box b = array.get(demandBoxes, i)
-            if close < box.get_bottom(b)
+            if close < box.get_bottom(b) - mitBuf
                 array.set(demandHit, i, true)
                 box.set_extend(b, extend.none)
                 box.set_right(b, bar_index)
