@@ -54,7 +54,12 @@ f_supplyZone(float mult, float bRatio, float nMax, int bLook, float bRange, int 
         int bs = s3 ? 4 : 2
 
         if (s1 or s3) and not na(open[bs]) and not na(close[bs])
-            if math.abs(open[bs] - close[bs]) <= nMax * a
+            // Neutral base candle: small body (ATR check) OR wicky candle (body <= 50% of range)
+            // Elder Santis: "neutral = big wicks, small body" — both definitions accepted
+            float bsBody = math.abs(open[bs] - close[bs])
+            float bsRng  = high[bs] - low[bs]
+            bool  bsOk   = bsBody <= nMax * a or (bsRng > 0.0 and bsBody / bsRng <= 0.5)
+            if bsOk
                 // Supply: top = highest WICK, bottom = lowest BODY-BOTTOM
                 zTop    := high[bs]
                 zBot    := math.min(open[bs], close[bs])
@@ -63,7 +68,10 @@ f_supplyZone(float mult, float bRatio, float nMax, int bLook, float bRange, int 
                 for k = bs + 1 to bs + bLook
                     if na(open[k]) or na(close[k]) or na(high[k])
                         break
-                    if math.abs(open[k] - close[k]) > nMax * a
+                    float kBody = math.abs(open[k] - close[k])
+                    float kRng  = high[k] - low[k]
+                    bool  kOk   = kBody <= nMax * a or (kRng > 0.0 and kBody / kRng <= 0.5)
+                    if not kOk
                         break
                     if (math.max(zTop, high[k]) - math.min(zBot, math.min(open[k], close[k]))) > bRange * a
                         break
@@ -99,7 +107,11 @@ f_demandZone(float mult, float bRatio, float nMax, int bLook, float bRange, int 
         int bs = s3 ? 4 : 2
 
         if (s1 or s3) and not na(open[bs]) and not na(close[bs])
-            if math.abs(open[bs] - close[bs]) <= nMax * a
+            // Neutral base candle: small body (ATR check) OR wicky candle (body <= 50% of range)
+            float bsBody = math.abs(open[bs] - close[bs])
+            float bsRng  = high[bs] - low[bs]
+            bool  bsOk   = bsBody <= nMax * a or (bsRng > 0.0 and bsBody / bsRng <= 0.5)
+            if bsOk
                 // Demand: top = highest BODY-TOP, bottom = lowest WICK
                 zTop    := math.max(open[bs], close[bs])
                 zBot    := low[bs]
@@ -108,7 +120,10 @@ f_demandZone(float mult, float bRatio, float nMax, int bLook, float bRange, int 
                 for k = bs + 1 to bs + bLook
                     if na(open[k]) or na(close[k]) or na(low[k])
                         break
-                    if math.abs(open[k] - close[k]) > nMax * a
+                    float kBody = math.abs(open[k] - close[k])
+                    float kRng  = high[k] - low[k]
+                    bool  kOk   = kBody <= nMax * a or (kRng > 0.0 and kBody / kRng <= 0.5)
+                    if not kOk
                         break
                     if (math.max(zTop, math.max(open[k], close[k])) - math.min(zBot, low[k])) > bRange * a
                         break
