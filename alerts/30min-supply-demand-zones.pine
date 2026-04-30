@@ -197,6 +197,12 @@ f_demandContZone(float mult, int al) =>
 [ref_sValid, ref_sTop, ref_sBot, ref_sOff] = request.security(syminfo.tickerid, refineTF, f_supplyZone(minMult, bodyRatio, neutralMax, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
 [ref_dValid, ref_dTop, ref_dBot, ref_dOff] = request.security(syminfo.tickerid, refineTF, f_demandZone(minMult, bodyRatio, neutralMax, baseLook, baseRange, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
 
+// Secondary detection — looser base (neutralMax x1.4) but stricter impulse (minMult x1.3)
+// and tighter zone height cap (baseRange x0.55) to avoid oversized boxes.
+// Only drawn when primary detection found nothing on that bar (no duplicates).
+[htf_sValid2, htf_sTop2, htf_sBot2, htf_sOff2] = request.security(syminfo.tickerid, zoneTF, f_supplyZone(minMult * 1.3, bodyRatio, neutralMax * 1.4, baseLook, baseRange * 0.55, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
+[htf_dValid2, htf_dTop2, htf_dBot2, htf_dOff2] = request.security(syminfo.tickerid, zoneTF, f_demandZone(minMult * 1.3, bodyRatio, neutralMax * 1.4, baseLook, baseRange * 0.55, atrLen), barmerge.gaps_off, barmerge.lookahead_off)
+
 // Departure extremes — used for zone strength tier calculation
 // Supply departure = lowest low reached by the impulse candle(s) in the HTF context
 // Demand departure = highest high reached by the impulse candle(s)
@@ -287,6 +293,40 @@ if is_new_htf and htf_dValid and showLabel and array.size(demandBoxes) > 0
     string dTier    = dMoveSize >= 800 ? "D1" : dMoveSize >= 400 ? "D2" : dMoveSize >= 200 ? "D3" : "D"
     if not array.get(demandHit, array.size(demandHit) - 1)
         box.set_text(array.get(demandBoxes, array.size(demandBoxes) - 1), dTier)
+
+// ── DRAW SECONDARY SUPPLY ZONE (only when primary found nothing) ──────────────
+if is_new_htf and htf_sValid2 and not htf_sValid
+    int leftBar2 = math.max(0, bar_index - math.round(htf_sOff2 * htfToChart))
+    box b2 = box.new(leftBar2, htf_sTop2, bar_index, htf_sBot2, border_color=supplyBorder, bgcolor=supplyFill, border_width=2, extend=extend.right)
+    if showLabel
+        box.set_text(b2, "S")
+        box.set_text_color(b2, color.new(color.white, 0))
+        box.set_text_size(b2, size.small)
+        box.set_text_halign(b2, text.align_left)
+        box.set_text_valign(b2, text.align_top)
+    array.push(supplyBoxes, b2)
+    array.push(supplyHit, false)
+    if array.size(supplyBoxes) > maxZones
+        box oldest = array.shift(supplyBoxes)
+        if not array.shift(supplyHit)
+            box.delete(oldest)
+
+// ── DRAW SECONDARY DEMAND ZONE (only when primary found nothing) ──────────────
+if is_new_htf and htf_dValid2 and not htf_dValid
+    int leftBar2 = math.max(0, bar_index - math.round(htf_dOff2 * htfToChart))
+    box b2 = box.new(leftBar2, htf_dTop2, bar_index, htf_dBot2, border_color=demandBorder, bgcolor=demandFill, border_width=2, extend=extend.right)
+    if showLabel
+        box.set_text(b2, "D")
+        box.set_text_color(b2, color.new(color.white, 0))
+        box.set_text_size(b2, size.small)
+        box.set_text_halign(b2, text.align_left)
+        box.set_text_valign(b2, text.align_top)
+    array.push(demandBoxes, b2)
+    array.push(demandHit, false)
+    if array.size(demandBoxes) > maxZones
+        box oldest = array.shift(demandBoxes)
+        if not array.shift(demandHit)
+            box.delete(oldest)
 
 // ── ROLE REVERSAL ─────────────────────────────────────────────────────────────
 // When a zone is broken, it enters 3-bar monitoring.
