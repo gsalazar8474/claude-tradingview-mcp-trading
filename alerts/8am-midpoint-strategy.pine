@@ -52,6 +52,8 @@ var bool  limitActive = false
 var bool  alertSent   = false
 var int   bullCount   = 0    // consecutive 15-min candles with full body above bodyTop
 var int   bearCount   = 0    // consecutive 15-min candles with full body below bodyBot
+var float pendingSL   = na   // SL price stored at break confirmation, used at retest
+var float pendingTP   = na   // TP price stored at break confirmation, used at retest
 
 if newDay
     level0      := na
@@ -66,6 +68,8 @@ if newDay
     alertSent   := false
     bullCount   := 0
     bearCount   := 0
+    pendingSL   := na
+    pendingTP   := na
 
 // ── DRAWING OBJECTS ───────────────────────────────────────────────────────────
 var line  lineTop  = na
@@ -189,8 +193,8 @@ if bullBias and not tradeDone
                  color=color.new(color.green, 55), textcolor=color.white,
                  style=label.style_label_left, size=size.small)
 
-            strategy.entry("Long", strategy.long, limit=mid, comment="8AM_BUY")
-            strategy.exit("Long Exit", "Long", limit=tpPrice, stop=slPrice)
+            pendingSL := slPrice
+            pendingTP := tpPrice
 
 // ── STEP 4 + 5 : SHORT — pivots → R:R → draw lines → place limit at mid ──────
 if bearBias and not tradeDone
@@ -226,18 +230,22 @@ if bearBias and not tradeDone
                  color=color.new(color.green, 55), textcolor=color.white,
                  style=label.style_label_left, size=size.small)
 
-            strategy.entry("Short", strategy.short, limit=mid, comment="8AM_SELL")
-            strategy.exit("Short Exit", "Short", limit=tpPrice, stop=slPrice)
+            pendingSL := slPrice
+            pendingTP := tpPrice
 
-// ── STEP 6 : retest alert fires when a 5-min candle's range touches mid ───────
-// request.security("5") pulls 5-min high/low for precise touch detection.
-// alert fires once per day when f5Low <= mid <= f5High.
+// ── STEP 6 : entry + alert fire ONLY when 5-min candle touches mid (retest) ───
+// strategy.entry is placed here — NOT at break confirmation.
+// This ensures no order exists until a 5-min candle straddles mid exactly.
 if limitActive and not alertSent and not na(mid) and not na(f5Low)
     if f5Low <= mid and f5High >= mid
         alertSent := true
         if bullBias
+            strategy.entry("Long",  strategy.long,  limit=mid, comment="8AM_BUY")
+            strategy.exit("Long Exit",  "Long",  limit=pendingTP, stop=pendingSL)
             alert('{"action":"buy","signal":"8am_midpoint","symbol":"{{ticker}}","price":"{{close}}","time":"{{timenow}}"}', alert.freq_once_per_bar)
         else if bearBias
+            strategy.entry("Short", strategy.short, limit=mid, comment="8AM_SELL")
+            strategy.exit("Short Exit", "Short", limit=pendingTP, stop=pendingSL)
             alert('{"action":"sell","signal":"8am_midpoint","symbol":"{{ticker}}","price":"{{close}}","time":"{{timenow}}"}', alert.freq_once_per_bar)
 
 // ── END OF DAY : cancel unfilled limit ───────────────────────────────────────
