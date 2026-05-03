@@ -7,9 +7,11 @@ strategy("8AM Midpoint Strategy [XAUUSD]",
 // ═══════════════════════════════════════════════════════════
 // INPUTS
 // ═══════════════════════════════════════════════════════════
-swingLB = input.int(20,   "Swing Lookback (bars)", minval = 5, maxval = 100)
-stopBuf = input.float(2.0, "Stop Buffer (pts)")
-minRR   = input.float(2.0, "Min R:R")
+swingLB  = input.int(20,    "Swing Lookback (bars)", minval = 5, maxval = 100)
+stopBuf  = input.float(2.0, "Stop Buffer (pts)")
+minRR    = input.float(2.0, "Min R:R")
+minRange = input.float(2.0, "Min Range Width ($)",   minval = 0.5)
+maxRange = input.float(15.0, "Max Range Width ($)",  minval = 5.0)
 
 // ═══════════════════════════════════════════════════════════
 // TIME  (America/New_York handles EST/EDT automatically)
@@ -18,10 +20,14 @@ nyHour = hour(time,       "America/New_York")
 nyMin  = minute(time,     "America/New_York")
 nyDay  = dayofmonth(time, "America/New_York")
 
-is8am  = nyHour == 8  and nyMin == 0
-is815  = nyHour == 8  and nyMin == 15
-isEOD  = nyHour == 16 and nyMin == 59
-newDay = ta.change(nyDay) != 0
+is8am       = nyHour == 8  and nyMin == 0
+is815       = nyHour == 8  and nyMin == 15
+isCancel    = nyHour == 11 and nyMin == 30   // cancel unfilled limit orders
+isHardClose = nyHour == 15 and nyMin == 55   // close any open position
+newDay      = ta.change(nyDay) != 0
+
+// Chop window: 8:15–8:45 AM (first 30 min after range forms)
+inChopWindow = nyHour == 8 and nyMin >= 15 and nyMin < 45
 
 // ═══════════════════════════════════════════════════════════
 // STATE
@@ -31,7 +37,8 @@ var float rangeHigh = na
 var float mid       = na
 var bool  bullBias  = false
 var bool  bearBias  = false
-var bool  tradeDone = false
+var bool  tradeDone  = false
+var int   crossCount = 0     // midpoint crossings in chop window
 
 var box   zoneBox   = na
 var line  midLine   = na
@@ -41,17 +48,19 @@ var label botLbl    = na
 var line  tpLine    = na
 var line  slLine    = na
 var label rrLbl     = na
+var label skipLbl   = na
 
 // ═══════════════════════════════════════════════════════════
 // DAILY RESET
 // ═══════════════════════════════════════════════════════════
 if newDay
-    rangeLow  := na
-    rangeHigh := na
-    mid       := na
-    bullBias  := false
-    bearBias  := false
-    tradeDone := false
+    rangeLow   := na
+    rangeHigh  := na
+    mid        := na
+    bullBias   := false
+    bearBias   := false
+    tradeDone  := false
+    crossCount := 0
 
 // ═══════════════════════════════════════════════════════════
 // 8AM RANGE CAPTURE
@@ -61,8 +70,22 @@ if is8am
     rangeLow := low
 
 if is815 and not na(rangeLow)
-    rangeHigh := high
-    mid       := (rangeLow + rangeHigh) / 2.0
+    rangeHigh  := high
+    rangeWidth  = rangeHigh - rangeLow
+
+    // Range width filter — too narrow or news-blown
+    if rangeWidth < minRange or rangeWidth > maxRange
+        tradeDone := true
+        if not na(skipLbl)
+            label.delete(skipLbl)
+        skipReason = rangeWidth < minRange ? "SKIP — range too narrow (" + str.tostring(rangeWidth, "#.##") + ")" : "SKIP — range too wide (" + str.tostring(rangeWidth, "#.##") + ")"
+        skipLbl := label.new(bar_index, rangeHigh + 1.0, skipReason,
+             color     = color.new(color.orange, 40),
+             textcolor = color.white,
+             style     = label.style_label_down,
+             size      = size.small)
+    else
+        mid := (rangeLow + rangeHigh) / 2.0
 
     if not na(zoneBox)
         box.delete(zoneBox)
@@ -75,32 +98,32 @@ if is815 and not na(rangeLow)
     if not na(botLbl)
         label.delete(botLbl)
 
-    // Green zone box
+    // Always draw the zone box (shows range even on skip days)
     zoneBox := box.new(bar_index - 1, rangeHigh, bar_index + 200, rangeLow,
-         border_color = color.green,
-         bgcolor      = color.new(color.green, 85),
+         border_color = tradeDone ? color.orange : color.green,
+         bgcolor      = tradeDone ? color.new(color.orange, 90) : color.new(color.green, 85),
          border_width = 1)
 
-    // White dashed midpoint line
-    midLine := line.new(bar_index - 1, mid, bar_index + 200, mid,
-         color = color.white, width = 1, style = line.style_dashed)
+    // Only draw mid line and labels when range is valid
+    if not na(mid)
+        midLine := line.new(bar_index - 1, mid, bar_index + 200, mid,
+             color = color.white, width = 1, style = line.style_dashed)
 
-    // Level labels  0 / 0.5 / 1
-    topLbl := label.new(bar_index + 2, rangeHigh, "0  — Top",
-         color     = color.new(color.green, 70),
-         textcolor = color.white,
-         style     = label.style_label_right,
-         size      = size.small)
-    midLbl := label.new(bar_index + 2, mid, "0.5 — Mid",
-         color     = color.new(color.gray, 60),
-         textcolor = color.white,
-         style     = label.style_label_right,
-         size      = size.small)
-    botLbl := label.new(bar_index + 2, rangeLow, "1  — Bottom",
-         color     = color.new(color.green, 70),
-         textcolor = color.white,
-         style     = label.style_label_right,
-         size      = size.small)
+        topLbl := label.new(bar_index + 2, rangeHigh, "0  — Top",
+             color     = color.new(color.green, 70),
+             textcolor = color.white,
+             style     = label.style_label_right,
+             size      = size.small)
+        midLbl := label.new(bar_index + 2, mid, "0.5 — Mid",
+             color     = color.new(color.gray, 60),
+             textcolor = color.white,
+             style     = label.style_label_right,
+             size      = size.small)
+        botLbl := label.new(bar_index + 2, rangeLow, "1  — Bottom",
+             color     = color.new(color.green, 70),
+             textcolor = color.white,
+             style     = label.style_label_right,
+             size      = size.small)
 
 // ═══════════════════════════════════════════════════════════
 // BIAS DETECTION
@@ -115,6 +138,24 @@ if bullBreak
     bullBias := true
 if bearBreak
     bearBias := true
+
+// ═══════════════════════════════════════════════════════════
+// CHOP DETECTION  (visual warning — discretionary filter)
+// Count mid crossings in 8:15–8:45 window; > 1 = chop
+// ═══════════════════════════════════════════════════════════
+if inChopWindow and not na(mid) and (ta.crossover(close, mid) or ta.crossunder(close, mid))
+    crossCount := crossCount + 1
+
+chopDetected = crossCount > 1
+
+if chopDetected and not tradeDone
+    if not na(skipLbl)
+        label.delete(skipLbl)
+    skipLbl   := label.new(bar_index, mid, "CHOP — " + str.tostring(crossCount) + "x mid cross",
+         color     = color.new(color.orange, 40),
+         textcolor = color.white,
+         style     = label.style_label_left,
+         size      = size.small)
 
 // ═══════════════════════════════════════════════════════════
 // SWING LEVELS
@@ -207,7 +248,10 @@ if bearBias and not tradeDone
               alert.freq_once_per_bar)
 
 // ═══════════════════════════════════════════════════════════
-// EOD — CANCEL UNFILLED LIMIT ORDERS AT 4:59 PM NY
+// TIME STOPS
 // ═══════════════════════════════════════════════════════════
-if isEOD
-    strategy.cancel_all()
+if isCancel
+    strategy.cancel_all()       // cancel unfilled limit at 11:30 AM
+
+if isHardClose
+    strategy.close_all()        // close any open position at 3:55 PM
