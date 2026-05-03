@@ -7,11 +7,10 @@ strategy("8AM Midpoint Strategy [XAUUSD]",
 // ═══════════════════════════════════════════════════════════
 // INPUTS
 // ═══════════════════════════════════════════════════════════
-swingLB  = input.int(20,    "Swing Lookback (bars)", minval = 5, maxval = 100)
-stopBuf  = input.float(2.0, "Stop Buffer (pts)")
-minRR    = input.float(2.0, "Min R:R")
-minRange = input.float(2.0, "Min Range Width ($)",   minval = 0.5)
-maxRange = input.float(15.0, "Max Range Width ($)",  minval = 5.0)
+pivLB      = input.int(10,    "Pivot Lookback (bars each side)", minval = 3, maxval = 20)
+stopBuf    = input.float(2.0, "SL Buffer (pts)")
+minRR      = input.float(2.0, "Min R:R")
+maxPivBars = input.int(672,   "Max pivot staleness (bars)",      minval = 50, maxval = 2000)
 
 // ═══════════════════════════════════════════════════════════
 // TIME  (America/New_York handles EST/EDT automatically)
@@ -20,114 +19,122 @@ nyHour = hour(time,       "America/New_York")
 nyMin  = minute(time,     "America/New_York")
 nyDay  = dayofmonth(time, "America/New_York")
 
-is8am       = nyHour == 8  and nyMin == 0
-is815       = nyHour == 8  and nyMin == 15
-isCancel    = nyHour == 11 and nyMin == 30   // cancel unfilled limit orders
-isHardClose = nyHour == 15 and nyMin == 55   // close any open position
-newDay      = ta.change(nyDay) != 0
-
-// Chop window: 8:15–8:45 AM (first 30 min after range forms)
-inChopWindow = nyHour == 8 and nyMin >= 15 and nyMin < 45
+is815  = nyHour == 8 and nyMin == 15
+newDay = ta.change(nyDay) != 0
 
 // ═══════════════════════════════════════════════════════════
-// STATE
+// PIVOT TRACKING  (persistent across days)
+// ta.pivotlow / pivothigh confirm with a pivLB-bar lag
 // ═══════════════════════════════════════════════════════════
-var float rangeLow  = na
+rawPivLow  = ta.pivotlow(pivLB, pivLB)
+rawPivHigh = ta.pivothigh(pivLB, pivLB)
+
+var float recentPivLow     = na
+var float recentPivHigh    = na
+var int   recentPivLowBar  = 0
+var int   recentPivHighBar = 0
+
+if not na(rawPivLow)
+    recentPivLow    := rawPivLow
+    recentPivLowBar := bar_index
+
+if not na(rawPivHigh)
+    recentPivHigh    := rawPivHigh
+    recentPivHighBar := bar_index
+
+pivLowValid  = not na(recentPivLow)  and (bar_index - recentPivLowBar)  <= maxPivBars
+pivHighValid = not na(recentPivHigh) and (bar_index - recentPivHighBar) <= maxPivBars
+
+// ═══════════════════════════════════════════════════════════
+// DAILY STATE
+// ═══════════════════════════════════════════════════════════
 var float rangeHigh = na
+var float rangeLow  = na
 var float mid       = na
 var bool  bullBias  = false
 var bool  bearBias  = false
-var bool  tradeDone  = false
-var int   crossCount = 0     // midpoint crossings in chop window
+var bool  tradeDone = false
 
-var box   zoneBox   = na
+var line  topLine   = na
 var line  midLine   = na
+var line  botLine   = na
 var label topLbl    = na
 var label midLbl    = na
 var label botLbl    = na
 var line  tpLine    = na
 var line  slLine    = na
-var label rrLbl     = na
-var label skipLbl   = na
+var label tpLbl     = na
+var label slLbl     = na
 
-// ═══════════════════════════════════════════════════════════
-// DAILY RESET
-// ═══════════════════════════════════════════════════════════
 if newDay
-    rangeLow   := na
-    rangeHigh  := na
-    mid        := na
-    bullBias   := false
-    bearBias   := false
-    tradeDone  := false
-    crossCount := 0
+    rangeHigh := na
+    rangeLow  := na
+    mid       := na
+    bullBias  := false
+    bearBias  := false
+    tradeDone := false
 
 // ═══════════════════════════════════════════════════════════
-// 8AM RANGE CAPTURE
-// Low of the 8:00am candle  →  High of the 8:15am candle
+// 8:15 AM CANDLE — defines the range for the day
+// High = level 0,  Low = level 1,  Mid = level 0.5
 // ═══════════════════════════════════════════════════════════
-if is8am
-    rangeLow := low
+if is815
+    rangeHigh := high
+    rangeLow  := low
+    mid       := (high + low) / 2.0
 
-if is815 and not na(rangeLow)
-    rangeHigh  := high
-    rangeWidth  = rangeHigh - rangeLow
-
-    // Range width filter — too narrow or news-blown
-    if rangeWidth < minRange or rangeWidth > maxRange
-        tradeDone := true
-        if not na(skipLbl)
-            label.delete(skipLbl)
-        skipReason = rangeWidth < minRange ? "SKIP — range too narrow (" + str.tostring(rangeWidth, "#.##") + ")" : "SKIP — range too wide (" + str.tostring(rangeWidth, "#.##") + ")"
-        skipLbl := label.new(bar_index, rangeHigh + 1.0, skipReason,
-             color     = color.new(color.orange, 40),
-             textcolor = color.white,
-             style     = label.style_label_down,
-             size      = size.small)
-    else
-        mid := (rangeLow + rangeHigh) / 2.0
-
-    if not na(zoneBox)
-        box.delete(zoneBox)
+    // Clear previous day's drawings
+    if not na(topLine)
+        line.delete(topLine)
     if not na(midLine)
         line.delete(midLine)
+    if not na(botLine)
+        line.delete(botLine)
     if not na(topLbl)
         label.delete(topLbl)
     if not na(midLbl)
         label.delete(midLbl)
     if not na(botLbl)
         label.delete(botLbl)
+    if not na(tpLine)
+        line.delete(tpLine)
+    if not na(slLine)
+        line.delete(slLine)
+    if not na(tpLbl)
+        label.delete(tpLbl)
+    if not na(slLbl)
+        label.delete(slLbl)
 
-    // Always draw the zone box (shows range even on skip days)
-    zoneBox := box.new(bar_index - 1, rangeHigh, bar_index + 200, rangeLow,
-         border_color = tradeDone ? color.orange : color.green,
-         bgcolor      = tradeDone ? color.new(color.orange, 90) : color.new(color.green, 85),
-         border_width = 1)
+    // Level 0 — top (green)
+    topLine := line.new(bar_index, rangeHigh, bar_index + 200, rangeHigh,
+         color = color.green, width = 1, style = line.style_solid)
+    topLbl  := label.new(bar_index, rangeHigh, "0",
+         color     = color.new(color.green, 60),
+         textcolor = color.white,
+         style     = label.style_label_right,
+         size      = size.small)
 
-    // Only draw mid line and labels when range is valid
-    if not na(mid)
-        midLine := line.new(bar_index - 1, mid, bar_index + 200, mid,
-             color = color.white, width = 1, style = line.style_dashed)
+    // Level 0.5 — midpoint (white dashed)
+    midLine := line.new(bar_index, mid, bar_index + 200, mid,
+         color = color.white, width = 1, style = line.style_dashed)
+    midLbl  := label.new(bar_index, mid, "0.5",
+         color     = color.new(color.gray, 60),
+         textcolor = color.white,
+         style     = label.style_label_right,
+         size      = size.small)
 
-        topLbl := label.new(bar_index + 2, rangeHigh, "0  — Top",
-             color     = color.new(color.green, 70),
-             textcolor = color.white,
-             style     = label.style_label_right,
-             size      = size.small)
-        midLbl := label.new(bar_index + 2, mid, "0.5 — Mid",
-             color     = color.new(color.gray, 60),
-             textcolor = color.white,
-             style     = label.style_label_right,
-             size      = size.small)
-        botLbl := label.new(bar_index + 2, rangeLow, "1  — Bottom",
-             color     = color.new(color.green, 70),
-             textcolor = color.white,
-             style     = label.style_label_right,
-             size      = size.small)
+    // Level 1 — bottom (red)
+    botLine := line.new(bar_index, rangeLow, bar_index + 200, rangeLow,
+         color = color.red, width = 1, style = line.style_solid)
+    botLbl  := label.new(bar_index, rangeLow, "1",
+         color     = color.new(color.red, 60),
+         textcolor = color.white,
+         style     = label.style_label_right,
+         size      = size.small)
 
 // ═══════════════════════════════════════════════════════════
 // BIAS DETECTION
-// Price crosses the midpoint → set directional bias
+// First close that crosses 0.5 sets the direction for the day
 // ═══════════════════════════════════════════════════════════
 bullBreak = not na(mid) and not tradeDone and not bullBias and not bearBias
      and ta.crossover(close, mid)
@@ -140,118 +147,99 @@ if bearBreak
     bearBias := true
 
 // ═══════════════════════════════════════════════════════════
-// CHOP DETECTION  (visual warning — discretionary filter)
-// Count mid crossings in 8:15–8:45 window; > 1 = chop
-// ═══════════════════════════════════════════════════════════
-if inChopWindow and not na(mid) and (ta.crossover(close, mid) or ta.crossunder(close, mid))
-    crossCount := crossCount + 1
-
-chopDetected = crossCount > 1
-
-if chopDetected and not tradeDone
-    if not na(skipLbl)
-        label.delete(skipLbl)
-    skipLbl   := label.new(bar_index, mid, "CHOP — " + str.tostring(crossCount) + "x mid cross",
-         color     = color.new(color.orange, 40),
-         textcolor = color.white,
-         style     = label.style_label_left,
-         size      = size.small)
-
-// ═══════════════════════════════════════════════════════════
-// SWING LEVELS
-// SL source : lowest / highest wick in last swingLB bars
-// TP source : highest / lowest wick in last swingLB bars (resistance / support)
-// ═══════════════════════════════════════════════════════════
-swingLo = ta.lowest(low,   swingLB)
-swingHi = ta.highest(high, swingLB)
-
-// ═══════════════════════════════════════════════════════════
 // LONG SETUP
-// Limit BUY at midpoint after bullish break
+// SL = most recent pivot low − buffer
+// TP = most recent pivot high
 // ═══════════════════════════════════════════════════════════
 if bullBias and not tradeDone
-    tradeDone := true  // one evaluation per day, even if R:R fails
+    tradeDone := true
 
-    slPrice = swingLo - stopBuf
-    tpPrice = swingHi
-    risk    = mid - slPrice
-    reward  = tpPrice - mid
-    rr      = reward / risk
+    if pivLowValid and pivHighValid
+        slPrice = recentPivLow  - stopBuf
+        tpPrice = recentPivHigh
+        risk    = mid - slPrice
+        reward  = tpPrice - mid
+        rr      = reward / risk
 
-    if rr >= minRR
-        strategy.entry("Long", strategy.long,  limit = mid, comment = "8AM_BUY")
-        strategy.exit("Long Exit", "Long", limit = tpPrice, stop = slPrice)
+        if rr >= minRR
+            strategy.entry("Long", strategy.long, limit = mid, comment = "8AM_BUY")
+            strategy.exit("Long Exit", "Long", limit = tpPrice, stop = slPrice)
 
-        if not na(tpLine)
-            line.delete(tpLine)
-        if not na(slLine)
-            line.delete(slLine)
-        if not na(rrLbl)
-            label.delete(rrLbl)
+            if not na(tpLine)
+                line.delete(tpLine)
+            if not na(slLine)
+                line.delete(slLine)
+            if not na(tpLbl)
+                label.delete(tpLbl)
+            if not na(slLbl)
+                label.delete(slLbl)
 
-        tpLine := line.new(bar_index, tpPrice, bar_index + 100, tpPrice,
-             color = color.green, width = 2, style = line.style_dotted)
-        slLine := line.new(bar_index, slPrice, bar_index + 100, slPrice,
-             color = color.red,   width = 2, style = line.style_dotted)
-        rrLbl  := label.new(bar_index, mid,
-             "BUY limit @ " + str.tostring(mid,     "#.##") +
-             "\nTP: "        + str.tostring(tpPrice, "#.##") +
-             "\nSL: "        + str.tostring(slPrice, "#.##") +
-             "\nR:R 1:"      + str.tostring(rr,      "#.#"),
-             color     = color.new(color.green, 55),
-             textcolor = color.white,
-             style     = label.style_label_left,
-             size      = size.small)
+            tpLine := line.new(bar_index, tpPrice, bar_index + 100, tpPrice,
+                 color = color.green, width = 2, style = line.style_dotted)
+            slLine := line.new(bar_index, slPrice, bar_index + 100, slPrice,
+                 color = color.red,   width = 2, style = line.style_dotted)
+            tpLbl  := label.new(bar_index, tpPrice,
+                 "Take profit: Last swing high  " + str.tostring(tpPrice, "#.##") +
+                 "  |  R:R 1:" + str.tostring(rr, "#.#"),
+                 color     = color.new(color.green, 55),
+                 textcolor = color.white,
+                 style     = label.style_label_left,
+                 size      = size.small)
+            slLbl  := label.new(bar_index, slPrice,
+                 "Stop loss: Last swing low  " + str.tostring(slPrice, "#.##"),
+                 color     = color.new(color.red, 55),
+                 textcolor = color.white,
+                 style     = label.style_label_left,
+                 size      = size.small)
 
-        alert('{"action":"buy","signal":"8am_midpoint","symbol":"{{ticker}}","price":"{{close}}","time":"{{timenow}}"}',
-              alert.freq_once_per_bar)
+            alert('{"action":"buy","signal":"8am_midpoint","symbol":"{{ticker}}","price":"{{close}}","time":"{{timenow}}"}',
+                  alert.freq_once_per_bar)
 
 // ═══════════════════════════════════════════════════════════
 // SHORT SETUP
-// Limit SELL at midpoint after bearish break
+// SL = most recent pivot high + buffer
+// TP = most recent pivot low
 // ═══════════════════════════════════════════════════════════
 if bearBias and not tradeDone
     tradeDone := true
 
-    slPrice = swingHi + stopBuf
-    tpPrice = swingLo
-    risk    = slPrice - mid
-    reward  = mid - tpPrice
-    rr      = reward / risk
+    if pivLowValid and pivHighValid
+        slPrice = recentPivHigh + stopBuf
+        tpPrice = recentPivLow
+        risk    = slPrice - mid
+        reward  = mid - tpPrice
+        rr      = reward / risk
 
-    if rr >= minRR
-        strategy.entry("Short", strategy.short, limit = mid, comment = "8AM_SELL")
-        strategy.exit("Short Exit", "Short", limit = tpPrice, stop = slPrice)
+        if rr >= minRR
+            strategy.entry("Short", strategy.short, limit = mid, comment = "8AM_SELL")
+            strategy.exit("Short Exit", "Short", limit = tpPrice, stop = slPrice)
 
-        if not na(tpLine)
-            line.delete(tpLine)
-        if not na(slLine)
-            line.delete(slLine)
-        if not na(rrLbl)
-            label.delete(rrLbl)
+            if not na(tpLine)
+                line.delete(tpLine)
+            if not na(slLine)
+                line.delete(slLine)
+            if not na(tpLbl)
+                label.delete(tpLbl)
+            if not na(slLbl)
+                label.delete(slLbl)
 
-        tpLine := line.new(bar_index, tpPrice, bar_index + 100, tpPrice,
-             color = color.green, width = 2, style = line.style_dotted)
-        slLine := line.new(bar_index, slPrice, bar_index + 100, slPrice,
-             color = color.red,   width = 2, style = line.style_dotted)
-        rrLbl  := label.new(bar_index, mid,
-             "SELL limit @ " + str.tostring(mid,     "#.##") +
-             "\nTP: "         + str.tostring(tpPrice, "#.##") +
-             "\nSL: "         + str.tostring(slPrice, "#.##") +
-             "\nR:R 1:"       + str.tostring(rr,      "#.#"),
-             color     = color.new(color.red, 55),
-             textcolor = color.white,
-             style     = label.style_label_left,
-             size      = size.small)
+            tpLine := line.new(bar_index, tpPrice, bar_index + 100, tpPrice,
+                 color = color.green, width = 2, style = line.style_dotted)
+            slLine := line.new(bar_index, slPrice, bar_index + 100, slPrice,
+                 color = color.red,   width = 2, style = line.style_dotted)
+            tpLbl  := label.new(bar_index, tpPrice,
+                 "Take profit: Last swing low  " + str.tostring(tpPrice, "#.##") +
+                 "  |  R:R 1:" + str.tostring(rr, "#.#"),
+                 color     = color.new(color.green, 55),
+                 textcolor = color.white,
+                 style     = label.style_label_left,
+                 size      = size.small)
+            slLbl  := label.new(bar_index, slPrice,
+                 "Stop loss: Last swing high  " + str.tostring(slPrice, "#.##"),
+                 color     = color.new(color.red, 55),
+                 textcolor = color.white,
+                 style     = label.style_label_left,
+                 size      = size.small)
 
-        alert('{"action":"sell","signal":"8am_midpoint","symbol":"{{ticker}}","price":"{{close}}","time":"{{timenow}}"}',
-              alert.freq_once_per_bar)
-
-// ═══════════════════════════════════════════════════════════
-// TIME STOPS
-// ═══════════════════════════════════════════════════════════
-if isCancel
-    strategy.cancel_all()       // cancel unfilled limit at 11:30 AM
-
-if isHardClose
-    strategy.close_all()        // close any open position at 3:55 PM
+            alert('{"action":"sell","signal":"8am_midpoint","symbol":"{{ticker}}","price":"{{close}}","time":"{{timenow}}"}',
+                  alert.freq_once_per_bar)
