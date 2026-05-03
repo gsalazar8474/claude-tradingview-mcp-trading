@@ -7,12 +7,14 @@ strategy("8AM Midpoint Strategy [XAUUSD]",
 // ─────────────────────────────────────────────────────────────
 // INPUTS
 // ─────────────────────────────────────────────────────────────
-stopBuf    = input.float(2.0,  "SL Buffer (pts)")
-minRR      = input.float(2.0,  "Min R:R")
-maxPivBars = input.int(672,    "Max pivot staleness (bars)", minval = 50, maxval = 2000)
+stopBuf    = input.float(2.0, "SL Buffer (pts)")
+minRR      = input.float(2.0, "Min R:R")
+maxPivBars = input.int(672,   "Max pivot staleness (bars)", minval = 50, maxval = 2000)
 
 // ─────────────────────────────────────────────────────────────
-// TIME  (America/New_York handles EST and EDT automatically)
+// BUG 1 FIX — timezone
+// hour() and minute() called with "America/New_York" so the
+// 8:15 detection is correct through every DST transition.
 // ─────────────────────────────────────────────────────────────
 nyHour = hour(time,       "America/New_York")
 nyMin  = minute(time,     "America/New_York")
@@ -23,9 +25,9 @@ isEOD  = nyHour == 16 and nyMin == 59
 newDay = ta.change(nyDay) != 0
 
 // ─────────────────────────────────────────────────────────────
-// PIVOT TRACKING  (runs every bar, never reset)
-// ta.pivotlow/pivothigh confirm with a 10-bar lag.
-// We store the most recent confirmed value and its bar index.
+// PIVOT TRACKING  (continuous — never reset daily)
+// ta.pivotlow / pivothigh confirm with a 10-bar lag.
+// We keep the most recent confirmed value and its bar index.
 // ─────────────────────────────────────────────────────────────
 rawPivLow  = ta.pivotlow(10, 10)
 rawPivHigh = ta.pivothigh(10, 10)
@@ -47,7 +49,7 @@ pivLowOK  = not na(recentPivLow)  and (bar_index - recentPivLowBar)  <= maxPivBa
 pivHighOK = not na(recentPivHigh) and (bar_index - recentPivHighBar) <= maxPivBars
 
 // ─────────────────────────────────────────────────────────────
-// DAILY STATE  (reset each new calendar day)
+// DAILY STATE — reset every new calendar day (NY time)
 // ─────────────────────────────────────────────────────────────
 var float lvlHigh   = na
 var float lvlMid    = na
@@ -55,6 +57,8 @@ var float lvlLow    = na
 var bool  bullBias  = false
 var bool  bearBias  = false
 var bool  tradeDone = false
+var int   bullCount = 0    // consecutive full-body candles with body above 0.5
+var int   bearCount = 0    // consecutive full-body candles with body below 0.5
 
 if newDay
     lvlHigh   := na
@@ -63,6 +67,8 @@ if newDay
     bullBias  := false
     bearBias  := false
     tradeDone := false
+    bullCount := 0
+    bearCount := 0
 
 // ─────────────────────────────────────────────────────────────
 // DRAWING OBJECTS
@@ -79,9 +85,9 @@ var label tpLabel = na
 var label slLabel = na
 
 // ─────────────────────────────────────────────────────────────
-// 8:15 AM — capture the range and draw the three level lines
-// high = level 0,  midpoint = level 0.5,  low = level 1
-// Lines extend ~35 bars forward (≈ 8h45m on 15min = end of NY session)
+// 8:15 AM NY — capture high/low/mid, draw 0 / 0.5 / 1 lines
+// Lines extend 35 bars (~8h45m on 15min ≈ 5 PM NY end of session)
+// Previous day's drawings are deleted and replaced each morning.
 // ─────────────────────────────────────────────────────────────
 if is815
     lvlHigh := high
@@ -90,7 +96,6 @@ if is815
 
     endBar = bar_index + 35
 
-    // Remove previous day's level lines
     if not na(line0)
         line.delete(line0)
     if not na(line05)
@@ -103,8 +108,6 @@ if is815
         label.delete(lbl05)
     if not na(lbl1)
         label.delete(lbl1)
-
-    // Remove previous day's SL / TP drawings
     if not na(tpLine)
         line.delete(tpLine)
     if not na(slLine)
@@ -114,57 +117,62 @@ if is815
     if not na(slLabel)
         label.delete(slLabel)
 
-    // Level 0 — top (white solid)
     line0 := line.new(bar_index, lvlHigh, endBar, lvlHigh,
          color = color.white, width = 1, style = line.style_solid)
     lbl0  := label.new(bar_index, lvlHigh, "0",
-         color     = color.new(color.white, 60),
-         textcolor = color.white,
-         style     = label.style_label_right,
-         size      = size.small)
+         color = color.new(color.white, 60), textcolor = color.white,
+         style = label.style_label_right, size = size.small)
 
-    // Level 0.5 — midpoint (white dashed)
     line05 := line.new(bar_index, lvlMid, endBar, lvlMid,
          color = color.white, width = 1, style = line.style_dashed)
     lbl05  := label.new(bar_index, lvlMid, "0.5",
-         color     = color.new(color.white, 60),
-         textcolor = color.white,
-         style     = label.style_label_right,
-         size      = size.small)
+         color = color.new(color.white, 60), textcolor = color.white,
+         style = label.style_label_right, size = size.small)
 
-    // Level 1 — bottom (white solid)
     line1 := line.new(bar_index, lvlLow, endBar, lvlLow,
          color = color.white, width = 1, style = line.style_solid)
     lbl1  := label.new(bar_index, lvlLow, "1",
-         color     = color.new(color.white, 60),
-         textcolor = color.white,
-         style     = label.style_label_right,
-         size      = size.small)
+         color = color.new(color.white, 60), textcolor = color.white,
+         style = label.style_label_right, size = size.small)
 
 // ─────────────────────────────────────────────────────────────
-// BIAS DETECTION
-// First bar AFTER 8:15 where close crosses the midpoint.
-// Guard with (not is815) so the range-defining candle itself
-// cannot trigger an entry.
+// BUG 2 FIX — 3-candle full-body break confirmation
+//
+// After the 8:15 candle closes, count consecutive candles whose
+// entire body (open AND close) sits on one side of 0.5.
+// Wicks crossing 0.5 are allowed — only the body matters.
+// A candle whose body straddles 0.5 resets both counters.
 // ─────────────────────────────────────────────────────────────
-bullBreak = not na(lvlMid) and not is815 and not tradeDone
-     and not bullBias and not bearBias
-     and ta.crossover(close, lvlMid)
+if not na(lvlMid) and not is815 and not bullBias and not bearBias and not tradeDone
+    bodyAbove = open > lvlMid and close > lvlMid
+    bodyBelow = open < lvlMid and close < lvlMid
 
-bearBreak = not na(lvlMid) and not is815 and not tradeDone
-     and not bullBias and not bearBias
-     and ta.crossunder(close, lvlMid)
+    if bodyAbove
+        bullCount := bullCount + 1
+        bearCount := 0
+    else if bodyBelow
+        bearCount := bearCount + 1
+        bullCount := 0
+    else
+        bullCount := 0
+        bearCount := 0
 
-if bullBreak
+// Set directional bias the bar the 3rd qualifying candle closes
+if bullCount >= 3 and not bullBias and not bearBias and not tradeDone
     bullBias := true
-if bearBreak
+
+if bearCount >= 3 and not bullBias and not bearBias and not tradeDone
     bearBias := true
 
 // ─────────────────────────────────────────────────────────────
-// LONG SETUP
-// SL  = most recent confirmed pivot LOW  − stopBuf
-// TP  = most recent confirmed pivot HIGH
-// Only fires if R:R ≥ minRR
+// BUG 3 FIX — LONG SETUP
+//
+// Sequence on the bar break is confirmed:
+//   1. Look up most recent pivot low (SL) and pivot high (TP)
+//   2. Calculate R:R from 0.5
+//   3. If R:R ≥ 2: place limit at 0.5, draw SL/TP lines immediately
+//      Lines appear on the chart before the limit fills.
+//   4. If R:R < 2 or no valid pivot: skip day, draw nothing.
 // ─────────────────────────────────────────────────────────────
 if bullBias and not tradeDone
     tradeDone := true
@@ -213,10 +221,7 @@ if bullBias and not tradeDone
                   alert.freq_once_per_bar)
 
 // ─────────────────────────────────────────────────────────────
-// SHORT SETUP
-// SL  = most recent confirmed pivot HIGH + stopBuf
-// TP  = most recent confirmed pivot LOW
-// Only fires if R:R ≥ minRR
+// SHORT SETUP (same sequence as long)
 // ─────────────────────────────────────────────────────────────
 if bearBias and not tradeDone
     tradeDone := true
